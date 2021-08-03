@@ -1,4 +1,5 @@
-//use bls12_381::{G1Affine, G1Projective, Scalar};
+#![allow(non_snake_case)]
+
 use bls12_381::Scalar;
 
 mod discrete_logarithm;
@@ -13,20 +14,19 @@ fn main() {
     const M: u32 = 1000;
     const N: u32 = 1000;
 
-    let x1: Vec<Scalar> = vec![interface::to_scalar(&1234); L];
-    let y: Vec<Scalar> = vec![interface::to_scalar(&1); L];
+    let x1: Vec<Scalar> = vec![Scalar::from_raw([1234u64, 0, 0, 0]); L];
+    let y: Vec<Scalar> = vec![Scalar::from_raw([1u64, 0, 0, 0]); L];
 
-    let (msk, mpk) = ipfe::setup(&L);
+    let (msk, MPK) = ipfe::setup(L);
 
-    let c = ipfe::encrypt(&mpk, &x1);
+    let C = ipfe::encrypt(&MPK, &x1);
 
     let sky = ipfe::key_der(&msk, &y);
 
-    let p = ipfe::decrypt(&c, &y, &sky);
+    let P = ipfe::decrypt(&C, &y, &sky);
 
-    if let Ok(x2) = discrete_logarithm::bsgs(&p, &M, &N) {
-        println!("Found exponent: {}", x2);
-    } else {
-        println!("Could not solve the DLP!");
+    match discrete_logarithm::bsgs(&P, M, N) {
+        Ok(x2) => println!("Found exponent: {}", x2),
+        Err(error) => println!("Error, could not solve the DLP: {:?}", error),
     }
 }

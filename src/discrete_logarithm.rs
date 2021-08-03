@@ -10,74 +10,61 @@ use crate::interface;
 /// - `m`:  number of pairs to precompute
 ///
 /// See [the notes on DLP](crate::notes::dlp) for more explanations
-fn precomputation(m: &u32) -> HashMap<G1Affine, (u32, G1Affine)> {
-    let g = G1Projective::generator();
+fn precomputation(m: u32) -> HashMap<G1Affine, (u32, G1Affine)> {
+    let G = G1Projective::generator();
     let mut pairs: HashMap<G1Affine, (u32, G1Affine)> = HashMap::new();
-    let mut pi = G1Projective::identity();
-    for i in 0..*m {
-        pairs.insert(G1Affine::from(pi), (i, G1Affine::from(pi)));
-        pi = pi + g;
+    let mut P_i = G1Projective::identity();
+    for i in 0..m {
+        pairs.insert(G1Affine::from(P_i), (i, G1Affine::from(P_i)));
+        P_i = P_i + G;
     }
     pairs
 }
 
 /// This algorithm imlements the iteration fonction of the BSGS algorithm.
 ///
-/// - `p`:      right term of the DLP
-/// - `q`:      inverse of `g^m`
+/// - `P`:      right term of the DLP
+/// - `Q`:      inverse of `g^m`
 /// - `n`:      the number of iterations
 /// - `pairs`:  hash table containg the precomputed values
 fn iterate(
-    p: &G1Affine,
-    q: &G1Affine,
-    n: &u32,
+    P: &G1Projective,
+    Q: &G1Projective,
+    n: u32,
     pairs: &mut HashMap<G1Affine, (u32, G1Affine)>,
 ) -> Option<(u32, u32)> {
     let mut res = None;
     let mut k = 0;
-    let mut qk: G1Projective = G1Projective::identity();
-    let mut pk = qk + p;
-    while k < *n {
-        res = pairs.get(&G1Affine::from(pk));
+    let mut Q_k = G1Projective::identity();
+    let mut P_k = Q_k + P;
+    while k < n {
+        res = pairs.get(&G1Affine::from(P_k));
         if res.is_some() {
             break;
         } else {
             k += 1;
-            qk = qk + q;
-            pk = qk + p;
+            Q_k = Q_k + Q;
+            P_k = Q_k + P;
         }
     }
-    if let Some(pair) = res {
-        Some((k, pair.0))
-    } else {
-        None
-    }
-}
-
-/// Returns the inverse of `p^pow`.
-///
-/// - `p`:   Point in G1
-/// - `n`: exponent
-fn get_inverse(p: &G1Affine, n: &u32) -> G1Affine {
-    let q = interface::naive_exponentiation(p, n);
-    G1Affine::inverse(&q)
+    res.map(|pair| (k, pair.0))
 }
 
 /// This algorithm implements the BSGS algorithm. It aims to find `x` such that
 /// `x.g = p`, where `g` is the generator of `G1`, `p` is given and `x < M`
 /// with `M = mn` is not too big.
 ///
-/// `p`:  right member of the DLP equation
+/// `P`:  right member of the DLP equation
 /// `m`:  integer such that `x < mn`
 /// `n`:  integer such that `x < mn`
-pub fn bsgs(p: &G1Affine, m: &u32, n: &u32) -> Result<u64, ErrorKind> {
+pub fn bsgs(P: &G1Projective, m: u32, n: u32) -> Result<u64, ErrorKind> {
     // define some heuristics
     // e.g. test the case where the solution is 1
 
-    let mut pairs = precomputation(&m);
-    let q = G1Affine::from(get_inverse(&G1Affine::generator(), &m));
+    let mut pairs = precomputation(m);
+    let Q = interface::get_inverse(&G1Projective::generator(), m);
 
-    let res = iterate(&p, &q, &n, &mut pairs);
+    let res = iterate(&P, &Q, n, &mut pairs);
     if let Some((k, i)) = res {
         Ok(u64::from(k * m + i))
     } else {
