@@ -5,26 +5,31 @@ use bls12_381::{G1Affine, G1Projective, G2Affine, Scalar};
 
 const RAW_SCALAR_SIZE: usize = 4;
 
+/// Draw a random scalar from Fp.
 pub fn random_scalar() -> Scalar {
     Scalar::from_raw([rand::random(); RAW_SCALAR_SIZE])
 }
 
+/// Hide a given scalar in G1 based on the CDH assumption.
+/// - a:    scalar
 pub fn smul_in_g1(a: &Scalar) -> G1Affine {
     let g: G1Affine = G1Affine::generator();
     G1Affine::from(g * a)
 }
 
+/// Hide a given scalar in G2 based on the CDH assumption.
+/// - a:    scalar
 pub fn smul_in_g2(a: &Scalar) -> G2Affine {
     let g: G2Affine = G2Affine::generator();
     G2Affine::from(g * a)
 }
 
-// Generate a random point in G_1
+/// Generate a random point in G_1
 pub fn random_in_g1() -> G1Affine {
     smul_in_g1(&random_scalar())
 }
 
-// Generate a random point in G_2
+/// Generate a random point in G_2
 pub fn random_in_g2() -> G2Affine {
     smul_in_g2(&random_scalar())
 }
@@ -33,7 +38,7 @@ pub fn random_in_g2() -> G2Affine {
 ///
 /// - `P`:  Point in G1
 /// - `n`:  exponent
-pub fn get_inverse(P: &G1Projective, n: u32) -> G1Projective {
+pub fn get_inverse(P: &G1Projective, n: u64) -> G1Projective {
     let Q = G1Affine::from(double_and_add(&P, n));
     G1Projective::from(G1Affine::inverse(&Q))
 }
@@ -41,7 +46,7 @@ pub fn get_inverse(P: &G1Projective, n: u32) -> G1Projective {
 /// This algorithm implements the recursive version of the double-and-add method to compute `n.P`.
 /// - `P`:  point
 /// - `n`:  exponent
-pub fn double_and_add_rec(P: &G1Projective, n: u32) -> G1Projective {
+pub fn double_and_add_rec(P: &G1Projective, n: u64) -> G1Projective {
     let Q = *P;
     if n == 0 {
         G1Projective::identity()
@@ -54,11 +59,10 @@ pub fn double_and_add_rec(P: &G1Projective, n: u32) -> G1Projective {
     }
 }
 
-
 /// This algorithm implements the double-and-add method to compute `n.P`.
 /// - `P`:  point
 /// - `n`:  exponent
-pub fn double_and_add(P: &G1Projective, n: u32) -> G1Projective {
+pub fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
     let mut acc = G1Projective::identity();
 
     // This is a simple double-and-add implementation of point
@@ -89,6 +93,8 @@ pub fn naive_exponentiation(P: &G1Projective, n: u32) -> G1Projective {
     Q
 }
 
-pub fn integer_to_scalar(x: u32) -> Scalar {
-    Scalar::from_raw([u64::from(x), 0, 0, 0])
+/// Convert the given uint64 into a valid Fp scalar.
+/// - x:    the uint64
+pub fn integer_to_scalar(x: u64) -> Scalar {
+    Scalar::from_raw([x, 0, 0, 0])
 }

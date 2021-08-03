@@ -4,10 +4,13 @@ Implementation of the DMCFE algorithm
 ## TODO
 
 - optimize IPFE
-- optimize BSGS
-- implement tests to analyse the BSGS running time given `(m, n)`
+- optimize BSGS:
+	+ parallelize?
+	+ try to change the recurring computation of `g^n` into a non-recurring suite.
+	+ implement better exponentiation
+- implement functional tests
 - complete bibliography
-- complete README/notes
+- complete README and notes
 
 ## Bibliography
 
