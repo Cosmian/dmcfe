@@ -8,3 +8,5 @@ edition = "2018"
 [dependencies]
 bls12_381 = {git = "https://github.com/Cosmian/bls12_381.git", branch = "tbrezot/add_g1_tools"}
 rand = "*"
+sha2 = "*"
+generic-array = "*"
