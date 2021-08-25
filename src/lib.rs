@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 // Private modules
+mod ssl;
+mod tests;
 mod tools;
 mod notes {
     mod dlp;
@@ -8,5 +10,6 @@ mod notes {
 
 // Public modules
 pub mod benchmark_tools;
-pub mod discrete_logarithm;
+pub mod dlp;
+pub mod ip_mcfe;
 pub mod ipfe;

@@ -1,4 +1,4 @@
-use crate::{discrete_logarithm, tools};
+use crate::{dlp, tools};
 use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 use rand::Rng;
@@ -21,7 +21,7 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
 
     // solve it
     let timer = Instant::now();
-    let res = discrete_logarithm::bsgs(&p, n, n)?;
+    let res = dlp::bsgs(&p, n, n)?;
     let timer = timer.elapsed();
 
     // check the result

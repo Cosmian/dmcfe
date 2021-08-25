@@ -83,7 +83,7 @@ pub fn bsgs(P: &G1Projective, m: u32, n: u32) -> Result<u64> {
     // e.g. test the case where the solution is 1
 
     let pairs = precomputation(m)?;
-    let Q = tools::get_inverse(&G1Projective::generator(), m as u64);
+    let Q = tools::get_inverse(&tools::double_and_add(&G1Projective::generator(), m as u64));
     let (giant_step, baby_step) = iterate(P, &Q, n, &pairs).ok_or_else(|| {
         eyre::eyre!(
             "Cannot find any solution `x` to the DLP such that `x < ({} * {})`!",

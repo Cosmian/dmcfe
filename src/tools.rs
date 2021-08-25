@@ -1,8 +1,19 @@
 #![allow(dead_code)]
 
-use bls12_381::{G1Affine, G1Projective, G2Affine, Scalar};
+use bls12_381::{
+    hash_to_curve::{ExpandMsgXmd, HashToCurve},
+    G1Affine, G1Projective, G2Projective, Scalar,
+};
+use eyre::Result;
 
 const RAW_SCALAR_SIZE: usize = 4;
+const DST: &[u8] = b"simple_DST";
+
+/// Convert the given uint64 into a valid Fp scalar.
+/// - x:    the uint64
+pub(crate) fn integer_to_scalar(x: u64) -> Scalar {
+    Scalar::from_raw([x, 0, 0, 0])
+}
 
 /// Draw a random scalar from Fp.
 pub(crate) fn random_scalar() -> Scalar {
@@ -11,35 +22,106 @@ pub(crate) fn random_scalar() -> Scalar {
 
 /// Hide a given scalar in G1 based on the CDH assumption.
 /// - `a`:    scalar
-pub(crate) fn smul_in_g1(a: &Scalar) -> G1Affine {
-    let g = G1Affine::generator();
-    G1Affine::from(g * a)
+pub(crate) fn smul_in_g1(a: &Scalar) -> G1Projective {
+    G1Projective::generator() * a
 }
 
 /// Hide a given scalar in G2 based on the CDH assumption.
 /// - `a`:    scalar
-pub(crate) fn smul_in_g2(a: &Scalar) -> G2Affine {
-    let g = G2Affine::generator();
-    G2Affine::from(g * a)
+pub(crate) fn smul_in_g2(a: &Scalar) -> G2Projective {
+    G2Projective::generator() * a
 }
 
 /// Generate a random point in G_1.
-pub(crate) fn random_in_g1() -> G1Affine {
+pub(crate) fn random_in_g1() -> G1Projective {
     smul_in_g1(&random_scalar())
 }
 
 /// Generate a random point in G_2.
-pub(crate) fn random_in_g2() -> G2Affine {
+pub(crate) fn random_in_g2() -> G2Projective {
     smul_in_g2(&random_scalar())
 }
 
-/// Returns the inverse of `p^pow`.
-///
+/// Returns the inverse of P in G1 in projective coordinates.
 /// - `P`:  Point in G1
-/// - `n`:  exponent
-pub(crate) fn get_inverse(P: &G1Projective, n: u64) -> G1Projective {
-    let Q = G1Affine::from(double_and_add(P, n));
-    G1Projective::from(G1Affine::inverse(&Q))
+pub(crate) fn get_inverse(P: &G1Projective) -> G1Projective {
+    G1Projective::from(G1Affine::inverse(&G1Affine::from(P)))
+}
+
+/// Returns the hash of the given `usize` in `G1`
+/// - `m`:  given `usize`
+pub(crate) fn hash_to_curve(m: usize) -> G1Projective {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(m.to_be_bytes(), DST)
+}
+
+/// Returns the hash of the given `usize` in `G1xG1`
+/// - `m`:  given `usize`
+pub(crate) fn double_hash_to_curve(m: usize) -> [G1Projective; 2] {
+    let (p1, p2) = <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(
+        m.to_be_bytes(),
+        DST,
+    );
+    [p1, p2]
+}
+
+/// generate a random (m,n) matrix of `Fp` elements.
+/// - `m`:  matrix size 1;
+/// - `n`:  matrix size 2.
+pub(crate) fn random_mat_gen(m: usize, n: usize) -> Vec<Vec<Scalar>> {
+    (0..m)
+        .map(|_| (0..n).map(|_| random_scalar()).collect())
+        .collect()
+}
+
+/// Transpose the given matrix,
+/// - `v`:  matrix to transpose
+pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
+    eyre::ensure!(!v.is_empty(), "0 has no inverse!");
+    let len = v[0].len();
+    let mut iters: Vec<_> = v.into_iter().map(|n| n.into_iter()).collect();
+    Ok((0..len)
+        .map(|_| {
+            iters
+                .iter_mut()
+                .map(|n| *(n.next().unwrap()))
+                .collect::<Vec<T>>()
+        })
+        .collect())
+}
+
+/// Compute the matrix/vector multiplication in `G1`: `x.y`, where `x` is a
+/// scalar matrix and `y` a matrix of G1 elements.
+/// - `x`:  matrix;
+/// - `y`:  vector.
+pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Projective>> {
+    eyre::ensure!(
+        0 != x.len() && x.first().unwrap().len() == y.len(),
+        "Vector lengths do not match!\n
+        ({}, {}) vs ({}, 1)",
+        x.len(),
+        x.first().unwrap().len(),
+        y.len(),
+    );
+    Ok(x.iter()
+        .map(|xi| xi.iter().zip(y.iter()).map(|(xij, yj)| yj * xij).sum())
+        .collect())
+}
+
+/// Compute the matrix/vector multiplication in `Fp`.
+/// - `x`:  matrix;
+/// - `y`:  vector.
+pub(crate) fn scal_mat_mul_dim_2(x: &[Vec<Scalar>], y: &[Scalar]) -> Result<Vec<Scalar>> {
+    eyre::ensure!(
+        0 != x.len() && x.first().unwrap().len() == y.len(),
+        "Vector lengths do not match!\n
+        ({}, {}) vs ({}, 1)",
+        x.len(),
+        x.first().unwrap().len(),
+        y.len(),
+    );
+    Ok(x.iter()
+        .map(|xi| xi.iter().zip(y.iter()).map(|(xij, yj)| yj * xij).sum())
+        .collect())
 }
 
 /// This algorithm implements the recursive version of the double-and-add method to compute `n.P`.
@@ -81,19 +163,32 @@ pub(crate) fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
     acc
 }
 
-/// This algorithm implements the naive exponentiation method to compute `n.P`.
-/// - `P`:  point
-/// - `n`:  exponent
-pub(crate) fn naive_exponentiation(P: &G1Projective, n: u32) -> G1Projective {
-    let mut Q = *P;
-    for _i in 1..n {
-        Q += P;
-    }
-    Q
-}
+#[cfg(test)]
+mod test {
+    use crate::tools;
+    use bls12_381::G1Projective;
+    use eyre::Result;
+    use rand::Rng;
 
-/// Convert the given `u64` into a valid Fp scalar.
-/// - `x`:    the given `u64`
-pub(crate) fn integer_to_scalar(x: u64) -> Scalar {
-    Scalar::from_raw([x, 0, 0, 0])
+    #[test]
+    fn test_double_and_add() -> Result<()> {
+        /// Compute the naive exponentiation `n.P`.
+        /// - `P`:  point
+        /// - `n`:  exponent
+        fn naive_exponentiation(P: &G1Projective, n: u64) -> G1Projective {
+            let mut Q = *P;
+            for _i in 1..n {
+                Q += P;
+            }
+            Q
+        }
+
+        let P = tools::random_in_g1();
+        let n: u64 = rand::thread_rng().gen_range(10..20);
+        eyre::ensure!(
+            naive_exponentiation(&P, n) == tools::double_and_add(&P, n),
+            "Error while computing the exponentiation: incorrect result!"
+        );
+        Ok(())
+    }
 }
