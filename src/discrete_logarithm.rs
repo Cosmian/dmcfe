@@ -1,9 +1,10 @@
+#![allow(non_snake_case)]
 use bls12_381::{G1Affine, G1Projective};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 
-use crate::interface;
+use crate::tools;
 
 const SHA256_SIZE: usize = 32;
 
@@ -13,7 +14,7 @@ const SHA256_SIZE: usize = 32;
 /// - `m`:  number of pairs to precompute
 ///
 /// See [the notes on DLP](crate::notes::dlp) for more explanations
-fn precomputation(m: u32) -> HashMap<[u8; SHA256_SIZE], u32> {
+fn precomputation(m: u32) -> Result<HashMap<[u8; SHA256_SIZE], u32>, ErrorKind> {
     let G = G1Projective::generator();
     let mut pairs = HashMap::new();
     let mut P_i = G1Projective::identity();
@@ -23,11 +24,13 @@ fn precomputation(m: u32) -> HashMap<[u8; SHA256_SIZE], u32> {
         let res = hasher.finalize().into();
         let res = pairs.insert(res, i);
         if let Some(j) = res {
-            panic!("Collision for {} and {}", i, j);
+            println!("Hash collision during the precomputation step of the BSGS!");
+            println!("`H(P_i) = H(P_j)`, where `i={}` and `j={}`", i, j);
+            return Err(ErrorKind::AlreadyExists);
         }
         P_i = P_i + G;
     }
-    pairs
+    Ok(pairs)
 }
 
 /// This algorithm imlements the iteration fonction of the BSGS algorithm.
@@ -40,7 +43,7 @@ fn iterate(
     P: &G1Projective,
     Q: &G1Projective,
     n: u32,
-    pairs: &mut HashMap<[u8; SHA256_SIZE], u32>,
+    pairs: &HashMap<[u8; SHA256_SIZE], u32>,
 ) -> Option<(u32, u32)> {
     let mut res = None;
     let mut k = 0;
@@ -66,9 +69,9 @@ fn iterate(
 /// `x.g = p`, where `g` is the generator of `G1`, `p` is given and `x < M`
 /// with `M = mn` is not too big.
 ///
-/// u32 are used to reduce the space required by the hash table in the
-/// iteration process. Indeed, the solution of the DLP for an number greater
-/// than an `U^2` where `U` is the gretest u32, is not considered computable.
+/// `u32` are used to reduce the space required by the hash table in the
+/// iteration process. Indeed, the solution of the DLP for a number greater
+/// than an `U^2` where `U` is the greatest `u32` is not considered computable.
 ///
 /// `P`:  right member of the DLP equation
 /// `m`:  u32 such that `x < mn`
@@ -77,10 +80,16 @@ pub fn bsgs(P: &G1Projective, m: u32, n: u32) -> Result<u64, ErrorKind> {
     // define some heuristics
     // e.g. test the case where the solution is 1
 
-    let mut pairs = precomputation(m);
-    let Q = interface::get_inverse(&G1Projective::generator(), m as u64);
+    let pairs = precomputation(m);
 
-    let res = iterate(&P, &Q, n, &mut pairs);
+    if let Err(error) = pairs {
+        println!("Cannot solve the DLP!");
+        return Err(error);
+    }
+
+    let Q = tools::get_inverse(&G1Projective::generator(), m as u64);
+    let res = iterate(&P, &Q, n, &pairs.unwrap());
+
     if let Some((k, i)) = res {
         Ok((k as u64) * (m as u64) + (i as u64))
     } else {
