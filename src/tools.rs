@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-#![allow(non_snake_case)]
 
 use bls12_381::{G1Affine, G1Projective, G2Affine, Scalar};
 
@@ -39,7 +38,7 @@ pub(crate) fn random_in_g2() -> G2Affine {
 /// - `P`:  Point in G1
 /// - `n`:  exponent
 pub(crate) fn get_inverse(P: &G1Projective, n: u64) -> G1Projective {
-    let Q = G1Affine::from(double_and_add(&P, n));
+    let Q = G1Affine::from(double_and_add(P, n));
     G1Projective::from(G1Affine::inverse(&Q))
 }
 
@@ -76,7 +75,7 @@ pub(crate) fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
     {
         acc = acc.double();
         if bit == 1u8 {
-            acc = acc + P;
+            acc += P;
         }
     }
     acc
