@@ -9,11 +9,10 @@ use sha2::{Digest, Sha256};
 /// - `n`:  number of clients
 pub fn setup(n: u32) -> (G2Projective, Vec<Scalar>) {
     let t: Vec<Scalar> = (0..n).map(|_i| tools::random_scalar()).collect();
-    let mut acc = Scalar::zero();
-    for i in 0..n {
-        acc += t[i as usize];
-    }
-    (tools::smul_in_g2(&acc), t)
+    (
+        tools::smul_in_g2(&t.iter().fold(Scalar::zero(), |acc, x| acc + x)),
+        t,
+    )
 }
 
 /// Hash function
@@ -21,8 +20,7 @@ fn hash(m: u128) -> G1Projective {
     let mut hasher = Sha256::new();
     hasher.update(m.to_le_bytes());
     let hash_res = hasher.finalize();
-    let mut res: [u8; 32] = [0u8; 32];
-    assert!(res.len() <= hash_res.len());
+    let mut res = [0u8; 32];
     for i in 0..res.len() {
         res[i] = hash_res[i];
     }
@@ -41,6 +39,6 @@ pub fn encaps(T: G2Projective, l: u128) -> (G2Projective, Gt) {
 }
 
 pub fn decaps(S: &[G1Projective], C: G2Projective) -> Gt {
-    let S: G1Projective = S.iter().map(|Si| Si).sum();
+    let S: G1Projective = S.iter().sum();
     pairing(&G1Affine::from(S), &G2Affine::from(C))
 }

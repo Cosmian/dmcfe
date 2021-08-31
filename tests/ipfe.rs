@@ -2,9 +2,9 @@
 //!
 //! Introduction about the IPFE algorithnm.
 
-#![cfg(test)]
-use crate::ipfe;
+#![allow(non_snake_case)]
 use bls12_381::{G1Projective, Scalar};
+use dmcfe::ipfe;
 use eyre::Result;
 use rand::Rng;
 

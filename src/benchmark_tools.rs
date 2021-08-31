@@ -17,7 +17,7 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
     let n: u32 = (m as f64).sqrt() as u32 + 1; // conversion is OK
 
     // create the DLP
-    let p = G1Projective::from(tools::smul_in_g1(&Scalar::from_raw([x, 0, 0, 0])));
+    let p: G1Projective = tools::smul_in_g1(&Scalar::from_raw([x, 0, 0, 0]));
 
     // solve it
     let timer = Instant::now();

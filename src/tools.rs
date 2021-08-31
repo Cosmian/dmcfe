@@ -56,12 +56,11 @@ pub(crate) fn hash_to_curve(m: usize) -> G1Projective {
 
 /// Returns the hash of the given `usize` in `G1xG1`
 /// - `m`:  given `usize`
-pub(crate) fn double_hash_to_curve(m: usize) -> [G1Projective; 2] {
-    let (p1, p2) = <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(
+pub(crate) fn double_hash_to_curve(m: usize) -> (G1Projective, G1Projective) {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(
         m.to_be_bytes(),
         DST,
-    );
-    [p1, p2]
+    )
 }
 
 /// generate a random (m,n) matrix of `Fp` elements.
@@ -78,12 +77,12 @@ pub(crate) fn random_mat_gen(m: usize, n: usize) -> Vec<Vec<Scalar>> {
 pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
     eyre::ensure!(!v.is_empty(), "0 has no inverse!");
     let len = v[0].len();
-    let mut iters: Vec<_> = v.into_iter().map(|n| n.into_iter()).collect();
+    let mut iters = v.iter().map(|n| n.iter()).collect::<Vec<_>>();
     Ok((0..len)
         .map(|_| {
             iters
                 .iter_mut()
-                .map(|n| *(n.next().unwrap()))
+                .map(|n| *(n.next().expect("Error while accessing elements of v!")))
                 .collect::<Vec<T>>()
         })
         .collect())
@@ -95,11 +94,17 @@ pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
 /// - `y`:  vector.
 pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Projective>> {
     eyre::ensure!(
-        0 != x.len() && x.first().unwrap().len() == y.len(),
-        "Vector lengths do not match!\n
-        ({}, {}) vs ({}, 1)",
+        !x.is_empty()
+            && x.first()
+                .ok_or_else(|| eyre::eyre!("Error while accessing the first element of x!"))?
+                .len()
+                == y.len(),
+        "Lengths do not match!\n
+        x ({}, {}) vs y ({}, 1)",
         x.len(),
-        x.first().unwrap().len(),
+        x.first()
+            .ok_or_else(|| eyre::eyre!("Error while accessing the first element of x!"))?
+            .len(),
         y.len(),
     );
     Ok(x.iter()
@@ -112,11 +117,17 @@ pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Pro
 /// - `y`:  vector.
 pub(crate) fn scal_mat_mul_dim_2(x: &[Vec<Scalar>], y: &[Scalar]) -> Result<Vec<Scalar>> {
     eyre::ensure!(
-        0 != x.len() && x.first().unwrap().len() == y.len(),
-        "Vector lengths do not match!\n
-        ({}, {}) vs ({}, 1)",
+        !x.is_empty()
+            && x.first()
+                .ok_or_else(|| eyre::eyre!("Error while accessing the first element of x!"))?
+                .len()
+                == y.len(),
+        "Lengths do not match!\n
+        x ({}, {}) vs y ({}, 1)",
         x.len(),
-        x.first().unwrap().len(),
+        x.first()
+            .ok_or_else(|| eyre::eyre!("Error while accessing the first element of x!"))?
+            .len(),
         y.len(),
     );
     Ok(x.iter()

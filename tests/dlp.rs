@@ -2,9 +2,9 @@
 //!
 //! Description of the DLP
 
-#![cfg(test)]
-use crate::{dlp, tools};
+#![allow(non_snake_case)]
 use bls12_381::{G1Projective, Scalar};
+use dmcfe::dlp;
 use eyre::Result;
 use rand::Rng;
 
@@ -16,7 +16,7 @@ fn test_dlp() -> Result<()> {
     let x: u64 = rand::thread_rng().gen_range(0..M);
 
     // create the DLP
-    let P: G1Projective = G1Projective::from(tools::smul_in_g1(&Scalar::from_raw([x, 0, 0, 0])));
+    let P: G1Projective = G1Projective::generator() * Scalar::from_raw([x, 0, 0, 0]);
 
     // solve it
     let res = dlp::bsgs(&P, m, m)?;

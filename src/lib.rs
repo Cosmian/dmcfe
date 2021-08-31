@@ -2,7 +2,6 @@
 
 // Private modules
 mod ssl;
-mod tests;
 mod tools;
 mod notes {
     mod dlp;

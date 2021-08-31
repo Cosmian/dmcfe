@@ -23,6 +23,7 @@ OK: transform the crate into a library one
 - complete bibliography
 - complete notes
 - write a real and nice README file :)
+- see how to return `Result<T>` in closures for `map` and `for_each` methods
 
 ## Bibliography
 

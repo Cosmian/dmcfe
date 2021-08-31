@@ -7,9 +7,9 @@
 //!
 //! In order to simulate the different parties, threads will be used.
 
-#![cfg(test)]
-use crate::{ip_mcfe, tools};
+#![allow(non_snake_case)]
 use bls12_381::{G1Projective, Scalar};
+use dmcfe::ip_mcfe;
 use eyre::Result;
 use rand::Rng;
 use std::sync::mpsc;
@@ -19,8 +19,13 @@ use std::thread;
 // - `cyphertext`:  the cyphered version of the client contributions
 // - `key`:         the partial decryption key
 struct Contribution {
-    cyphertext: Vec<G1Projective>,
+    cx: Vec<ip_mcfe::CypherText>,
     key: ip_mcfe::PartialDecryptionKey,
+}
+
+/// Draw a random scalar from Fp.
+fn random_scalar() -> Scalar {
+    Scalar::from_raw([rand::random(); 4])
 }
 
 /// Simulate a client:
@@ -28,15 +33,16 @@ struct Contribution {
 /// - compute the partial decryption key;
 /// - send the cyphertexts and the partial decryption key to the decryption client
 fn encrypt_simulation(
-    eki: &(Vec<Vec<Scalar>>, Vec<Scalar>),
+    eki: &ip_mcfe::EncryptionKey,
     xi: &[Scalar],
     yi: &[Scalar],
     l: usize,
     tx: mpsc::Sender<Contribution>,
 ) -> Result<()> {
-    let cyphertext = ip_mcfe::encrypt(eki, xi, l)?;
-    let key = ip_mcfe::dkey_gen(eki, yi)?;
-    tx.send(Contribution { cyphertext, key })?;
+    tx.send(Contribution {
+        cx: ip_mcfe::encrypt(eki, xi, l)?,
+        key: ip_mcfe::dkey_gen(eki, yi)?,
+    })?;
     Ok(())
 }
 
@@ -47,11 +53,11 @@ fn decrypt_simulation(
     n: usize,
     l: usize,
 ) -> Result<G1Projective> {
-    let mut C: Vec<Vec<G1Projective>> = Vec::new();
+    let mut C: Vec<Vec<ip_mcfe::CypherText>> = Vec::new();
     let mut keys: Vec<ip_mcfe::PartialDecryptionKey> = Vec::new();
     (0..n).for_each(|_| {
         let contrib = rx.recv().unwrap();
-        C.push(contrib.cyphertext);
+        C.push(contrib.cx);
         keys.push(contrib.key);
     });
 
@@ -78,7 +84,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
     // check input sizes:
     // x and y should have the same size since `<x,y>` is to be computed
     eyre::ensure!(X.len() == Y.len(), "x and y should have the same size!");
-    eyre::ensure!(0 != X.len(), "The given text vector should not be empty!");
+    eyre::ensure!(!X.is_empty(), "The given text vector should not be empty!");
     X.iter()
         .zip(Y.iter())
         .for_each(|(xi, yi)| assert_eq!(xi.len(), yi.len(), "x and y should have the same size!"));
@@ -121,8 +127,8 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
 fn test_mcfe() -> Result<()> {
     let n = rand::thread_rng().gen_range(2..20);
     let m = rand::thread_rng().gen_range(2..10);
-    let x = vec![vec![tools::random_scalar(); m]; n];
-    let y = vec![vec![tools::random_scalar(); m]; n];
+    let x = vec![vec![random_scalar(); m]; n];
+    let y = vec![vec![random_scalar(); m]; n];
     let l = rand::random(); // TODO: use a timestamp
 
     // compute the solution `G * <x,y>`
