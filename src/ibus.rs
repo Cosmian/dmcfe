@@ -1,13 +1,9 @@
 #![allow(dead_code)]
 
 use eyre::Result;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::mpsc;
 use std::thread;
-
-// Using `std::usize::MAX` as receiver client ID makes the data accessible to
-// all clients.
-const BROADCAST: usize = std::usize::MAX;
 
 // Arbitrary size limite for the db
 // TODO: think about a better size limit or system to keep the size small
@@ -17,12 +13,18 @@ const MAX_SIZE: usize = 2 ^ 16;
 pub type Sender<T> = mpsc::Sender<Packet<T>>;
 pub type Bus = thread::JoinHandle<Result<()>>;
 
-/// Data sent to the client after a fetch request.
-/// - `Data`:   actual data
-/// - `EOF`:    signal sent when no more data is to be sent for this fetch request
-pub enum Data<T> {
-    Data(T),
-    EOF,
+/// Unicast request:
+/// - `id`:     client ID of the receiver
+/// - `data`:   data to send
+pub struct UnicastRequest<T> {
+    pub id: usize,
+    pub data: T,
+}
+
+/// Broadcast request:
+/// - `data`:   data to broadacast
+pub struct BroadcastRequest<T> {
+    pub data: T,
 }
 
 /// Fetch request for the bus:
@@ -30,112 +32,116 @@ pub enum Data<T> {
 /// - `tx`: sender channel to communicate with this client
 pub struct FetchRequest<T> {
     pub id: usize,
-    pub tx: mpsc::Sender<Result<Data<T>>>,
+    pub tx: mpsc::Sender<Result<Option<T>>>,
 }
 
-/// Insert request for the bus:
-/// - `id`:     ID of the client emitting the request
-/// - `data`:   data to store inside the bus
-pub struct InsertRequest<T> {
-    pub id: usize,
-    pub data: T,
+/// Send request for the bus:
+/// - `UnicastRequest`: request unicast sending
+/// - `BroadcastRequest`: request broadcast sending
+pub enum SendRequest<T> {
+    UnicastRequest(UnicastRequest<T>),
+    BroadcastRequest(BroadcastRequest<T>),
 }
 
 /// Packet to send to the bus:
 /// TODO: letting any client shut down the bus may be an unwanted behavior.
 /// - `FetchRequest`:   request to fetch data from the bus
-/// - `InsertRequest`:  request to insert data into the bus
+/// - `SendRequest`:  request to send data into the bus
 /// - `SigTerm`:        request to shut the bus down
 pub enum Packet<T> {
     FetchRequest(FetchRequest<T>),
-    InsertRequest(InsertRequest<T>),
+    SendRequest(SendRequest<T>),
     SigTerm,
 }
 
 /// Broadcast structure:
 /// - `data`:       data to share
 /// - `id_list`:    holds the ID of the clients who already have the data
-struct Broadcast<T> {
+struct BroadcastData<T> {
     data: T,
-    id_list: HashMap<usize, ()>,
+    id_list: HashSet<usize>,
 }
 
-/// Manage fetch requests.
-fn manage_fetch<T: Clone>(
-    request: FetchRequest<T>,
-    n: usize,
-    private_db: &mut Vec<Vec<T>>,
-    public_db: &mut Vec<Broadcast<T>>,
-) -> Result<()> {
-    if request.id < n {
-        send_data(request, private_db, public_db);
-    } else {
-        request
-            .tx
-            .send(Err(eyre::eyre!(
-                "Cannot serve unplanned client (client id {} > id max {})",
-                request.id,
-                n - 1
-            )))
-            .unwrap();
-    }
-    Ok(())
+struct DataBase<T> {
+    private: Vec<Vec<T>>,
+    public: Vec<BroadcastData<T>>,
 }
 
-/// Send all data associated with the client ID of the fetch request
-/// into the transmission channel of this request.
-fn send_data<T: Clone>(
-    fetch_request: FetchRequest<T>,
-    private_db: &mut Vec<Vec<T>>,
-    public_db: &mut [Broadcast<T>],
-) {
-    // get the client ID and transmission channel
-    let FetchRequest { tx, id } = fetch_request;
-
-    // send all private data
-    while 0 < private_db[id].len() {
-        tx.send(Ok(Data::Data(private_db[id].swap_remove(0))))
-            .unwrap();
+impl<T: Clone> DataBase<T> {
+    /// Returns a new database with initialized for the given client number
+    fn new(n: usize) -> Self {
+        DataBase {
+            private: vec![vec![]; n],
+            public: vec![],
+        }
     }
 
-    // send broadcasted data if it hasn't been received yet
-    // remember the id of the clients who already have the data
-    // remove the data if all other clients already have it
-    public_db
-        .iter_mut()
-        .enumerate()
-        .rev()
-        .for_each(|(index, broadcast)| {
-            if broadcast.id_list.get(&id).is_none() {
-                // TODO: do not clone data for the last client
-                tx.send(Ok(Data::Data(broadcast.data.clone()))).unwrap();
-                if broadcast.id_list.len() < private_db.len() {
-                    broadcast.id_list.insert(id, ());
-                } else {
-                    // if all clients have received the data, remove it
-                    broadcast.id_list.remove(&index);
+    /// Manage fetch requests.
+    fn manage_fetch(&mut self, request: FetchRequest<T>, n: usize) -> Result<()> {
+        if request.id < n {
+            self.send_data(request, n);
+        } else {
+            request
+                .tx
+                .send(Err(eyre::eyre!(
+                    "Cannot serve unplanned client (client id {} > id max {})",
+                    request.id,
+                    n - 1
+                )))
+                .or_else(|err| -> Result<()> {
+                    eyre::eyre!("Error: failed to send data {}", err);
+                    Ok(())
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Send all data associated with the client ID of the fetch request
+    /// into the transmission channel of this request.
+    fn send_data(&mut self, fetch_request: FetchRequest<T>, n: usize) {
+        // get the client ID and transmission channel
+        let FetchRequest { tx, id } = fetch_request;
+
+        // send all private data
+        while 0 < self.private[id].len() {
+            tx.send(Ok(Some(self.private[id].swap_remove(0)))).unwrap();
+        }
+
+        // send broadcasted data if it hasn't been received yet
+        // remember the id of the clients who already have the data
+        // remove the data if all other clients already have it
+        self.public
+            .iter_mut()
+            .enumerate()
+            .rev()
+            .for_each(|(index, broadcast)| {
+                if broadcast.id_list.get(&id).is_none() {
+                    // TODO: do not clone data for the last client
+                    tx.send(Ok(Some(broadcast.data.clone()))).unwrap();
+                    if broadcast.id_list.len() < n {
+                        broadcast.id_list.insert(id);
+                    } else {
+                        // if all clients have received the data, remove it
+                        broadcast.id_list.remove(&index);
+                    }
                 }
-            }
-        });
+            });
 
-    // send the end-of-communication signal
-    tx.send(Ok(Data::EOF)).unwrap();
-}
+        // send the end-of-communication signal
+        tx.send(Ok(None)).unwrap();
+    }
 
-/// Manage the insert requests.
-fn manage_insert<T>(
-    insert_request: InsertRequest<T>,
-    private_db: &mut [Vec<T>],
-    public_db: &mut Vec<Broadcast<T>>,
-) {
-    match insert_request.id {
-        BROADCAST => public_db.push(Broadcast {
-            data: insert_request.data,
-            id_list: HashMap::new(),
-        }),
-        _ => {
-            if private_db.len() < MAX_SIZE && insert_request.id < private_db.len() {
-                private_db[insert_request.id].push(insert_request.data);
+    /// Manage the send requests.
+    fn manage_send(&mut self, send_request: SendRequest<T>) {
+        match send_request {
+            SendRequest::BroadcastRequest(broadcast) => self.public.push(BroadcastData {
+                data: broadcast.data,
+                id_list: HashSet::new(),
+            }),
+            SendRequest::UnicastRequest(unicast) => {
+                if self.private.len() < MAX_SIZE && unicast.id < self.private.len() {
+                    self.private[unicast.id].push(unicast.data);
+                }
             }
         }
     }
@@ -146,18 +152,13 @@ fn manage_insert<T>(
 /// - `n`:  number of clients
 fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
     // DB where data are stored, waiting for the receiver to fetch them
-    let mut private_db = vec![vec![]; n];
-    let mut public_db = vec![];
+    let mut db = DataBase::new(n);
 
     // listen for requests
     loop {
         match rx.recv().unwrap() {
-            Packet::InsertRequest(request) => {
-                manage_insert(request, &mut private_db, &mut public_db)
-            }
-            Packet::FetchRequest(request) => {
-                manage_fetch(request, n, &mut private_db, &mut public_db)?
-            }
+            Packet::SendRequest(request) => db.manage_send(request),
+            Packet::FetchRequest(request) => db.manage_fetch(request, n)?,
             Packet::SigTerm => return Ok(()),
         }
     }
@@ -173,10 +174,7 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
 /// - `tx`:     channel used to send the packet to the bus
 /// - `data`:   data to send
 pub fn broadcast<T>(tx: &Sender<T>, data: T) -> Result<()> {
-    let request = Packet::InsertRequest(InsertRequest {
-        id: BROADCAST,
-        data,
-    });
+    let request = Packet::SendRequest(SendRequest::BroadcastRequest(BroadcastRequest { data }));
     tx.send(request).unwrap();
     Ok(())
 }
@@ -185,9 +183,11 @@ pub fn broadcast<T>(tx: &Sender<T>, data: T) -> Result<()> {
 /// - `tx`:     bus transmission channel
 /// - `id`:     receiver client id
 /// - `data`:   data to send
-pub fn send<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
-    tx.send(Packet::InsertRequest(InsertRequest { id, data }))
-        .unwrap();
+pub fn unicast<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
+    tx.send(Packet::SendRequest(SendRequest::UnicastRequest(
+        UnicastRequest { id, data },
+    )))
+    .unwrap();
     Ok(())
 }
 
@@ -196,16 +196,15 @@ pub fn send<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
 /// - `id`: receiver client ID
 pub fn get<T>(tx: &Sender<T>, id: usize) -> Result<Vec<T>> {
     //create communication channels
-    let (client_tx, client_rx) = mpsc::channel::<Result<Data<T>>>();
+    let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
     // contact the bus to get the data
     tx.send(Packet::FetchRequest(FetchRequest { id, tx: client_tx }))
         .unwrap();
     // listen for the bus to get the data
     let mut res = Vec::new();
-    while let Data::Data(data) = client_rx.recv().unwrap()? {
+    while let Some(data) = client_rx.recv().unwrap()? {
         res.push(data);
     }
-
     Ok(res)
 }
 

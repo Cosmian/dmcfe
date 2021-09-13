@@ -12,7 +12,7 @@ fn simulate_send_client(
 ) -> Result<Vec<usize>> {
     // load all data inside the bus
     for &datum in data.iter() {
-        ibus::send(bus_tx, receiver, datum)?;
+        ibus::unicast(bus_tx, receiver, datum)?;
     }
 
     // get the data sent to this client
