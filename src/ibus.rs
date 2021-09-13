@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use eyre::Result;
 use std::collections::HashSet;
 use std::sync::mpsc;
@@ -79,56 +77,50 @@ impl<T: Clone> DataBase<T> {
     /// Manage fetch requests.
     fn manage_fetch(&mut self, request: FetchRequest<T>, n: usize) -> Result<()> {
         if request.id < n {
-            self.send_data(request, n);
+            self.send_data(request, n)?;
         } else {
-            request
-                .tx
-                .send(Err(eyre::eyre!(
+            safe_send(
+                &request.tx,
+                Err(eyre::eyre!(
                     "Cannot serve unplanned client (client id {} > id max {})",
                     request.id,
                     n - 1
-                )))
-                .or_else(|err| -> Result<()> {
-                    eyre::eyre!("Error: failed to send data {}", err);
-                    Ok(())
-                })?;
+                )),
+            )?;
         }
         Ok(())
     }
 
     /// Send all data associated with the client ID of the fetch request
     /// into the transmission channel of this request.
-    fn send_data(&mut self, fetch_request: FetchRequest<T>, n: usize) {
+    fn send_data(&mut self, fetch_request: FetchRequest<T>, n: usize) -> Result<()> {
         // get the client ID and transmission channel
         let FetchRequest { tx, id } = fetch_request;
 
         // send all private data
         while 0 < self.private[id].len() {
-            tx.send(Ok(Some(self.private[id].swap_remove(0)))).unwrap();
+            safe_send(&tx, Ok(Some(self.private[id].swap_remove(0))))?;
         }
 
         // send broadcasted data if it hasn't been received yet
         // remember the id of the clients who already have the data
         // remove the data if all other clients already have it
-        self.public
-            .iter_mut()
-            .enumerate()
-            .rev()
-            .for_each(|(index, broadcast)| {
-                if broadcast.id_list.get(&id).is_none() {
-                    // TODO: do not clone data for the last client
-                    tx.send(Ok(Some(broadcast.data.clone()))).unwrap();
-                    if broadcast.id_list.len() < n {
-                        broadcast.id_list.insert(id);
-                    } else {
-                        // if all clients have received the data, remove it
-                        broadcast.id_list.remove(&index);
-                    }
+        for (index, broadcast) in self.public.iter_mut().enumerate() {
+            if broadcast.id_list.get(&id).is_none() {
+                // TODO: do not clone data for the last client
+                tx.send(Ok(Some(broadcast.data.clone())))
+                    .map_err(|_| eyre::eyre!("Error send"))?;
+                if broadcast.id_list.len() < n {
+                    broadcast.id_list.insert(id);
+                } else {
+                    // if all clients have received the data, remove it
+                    broadcast.id_list.remove(&index);
                 }
-            });
+            }
+        }
 
         // send the end-of-communication signal
-        tx.send(Ok(None)).unwrap();
+        safe_send(&tx, Ok(None))
     }
 
     /// Manage the send requests.
@@ -156,7 +148,10 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
 
     // listen for requests
     loop {
-        match rx.recv().unwrap() {
+        match rx
+            .recv()
+            .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))?
+        {
             Packet::SendRequest(request) => db.manage_send(request),
             Packet::FetchRequest(request) => db.manage_fetch(request, n)?,
             Packet::SigTerm => return Ok(()),
@@ -175,8 +170,7 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
 /// - `data`:   data to send
 pub fn broadcast<T>(tx: &Sender<T>, data: T) -> Result<()> {
     let request = Packet::SendRequest(SendRequest::BroadcastRequest(BroadcastRequest { data }));
-    tx.send(request).unwrap();
-    Ok(())
+    safe_send(tx, request)
 }
 
 /// Send the given data to the client with the given ID.
@@ -184,11 +178,10 @@ pub fn broadcast<T>(tx: &Sender<T>, data: T) -> Result<()> {
 /// - `id`:     receiver client id
 /// - `data`:   data to send
 pub fn unicast<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
-    tx.send(Packet::SendRequest(SendRequest::UnicastRequest(
-        UnicastRequest { id, data },
-    )))
-    .unwrap();
-    Ok(())
+    safe_send(
+        tx,
+        Packet::SendRequest(SendRequest::UnicastRequest(UnicastRequest { id, data })),
+    )
 }
 
 /// Get all the data for the client with the given ID.
@@ -198,11 +191,14 @@ pub fn get<T>(tx: &Sender<T>, id: usize) -> Result<Vec<T>> {
     //create communication channels
     let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
     // contact the bus to get the data
-    tx.send(Packet::FetchRequest(FetchRequest { id, tx: client_tx }))
-        .unwrap();
+    safe_send(tx, Packet::FetchRequest(FetchRequest { id, tx: client_tx }))?;
     // listen for the bus to get the data
     let mut res = Vec::new();
-    while let Some(data) = client_rx.recv().unwrap()? {
+
+    while let Some(data) = client_rx
+        .recv()
+        .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))??
+    {
         res.push(data);
     }
     Ok(res)
@@ -221,6 +217,12 @@ pub fn open<T: 'static + Clone + Send>(n: usize) -> (Bus, Sender<T>) {
 /// - `bus`:    bus handle
 /// - `tx`:     bus transmission channel
 pub fn close<T>(bus: Bus, tx: Sender<T>) -> Result<()> {
-    tx.send(Packet::SigTerm).unwrap();
-    bus.join().unwrap()
+    safe_send(&tx, Packet::SigTerm)?;
+    bus.join()
+        .map_err(|err| eyre::eyre!("Error Join: {:?}", err))?
+}
+
+fn safe_send<T>(tx: &mpsc::Sender<T>, data: T) -> Result<()> {
+    tx.send(data)
+        .map_err(|err| eyre::eyre!("Send Error: {:?}", err))
 }
