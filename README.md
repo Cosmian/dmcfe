@@ -3,14 +3,27 @@ Implementation of the DMCFE algorithm
 
 ## TODO
 
-- optimize IPFE
+- optimize IPFE: how?
 - optimize BSGS:
-	+ parallelize?
-	+ try to change the recurring computation of `g^n` into a non-recurring suite.
-	+ implement better exponentiation
-- implement functional tests
+	+ parallelize: how to do?
+	OK: try to change the recurring computation of `g^n` into a non-recurring suite.
+	OK: implement better exponentiation
+OK: implement functional tests
+OK: implement MCFE
+- implement DMCFE
+- implement a better generic hash-to-curve function
+- see if #[bench] can be used for benchmarks
+- full documentation review
+- review type sizes
+- review Cargo.toml: see if it can be improved
+OK: transform the crate into a library one
+- see how to use the DST for the the hash-to-curve function
+- use Dsum from the cosmian repo
+- setup Github CI
 - complete bibliography
-- complete README and notes
+- complete notes
+- write a real and nice README file :)
+- see how to return `Result<T>` in closures for `map` and `for_each` methods
 
 ## Bibliography
 
