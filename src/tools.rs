@@ -63,6 +63,15 @@ pub(crate) fn double_hash_to_curve(m: usize) -> (G1Projective, G1Projective) {
     )
 }
 
+pub(crate) fn hash_to_scalar(
+    _tmin: &G1Projective,
+    _tmax: &G1Projective,
+    _tmul: &G1Projective,
+    _l: usize,
+) -> Scalar {
+    Scalar::zero()
+}
+
 /// generate a random (m,n) matrix of `Fp` elements.
 /// - `m`:  matrix size 1;
 /// - `n`:  matrix size 2.
