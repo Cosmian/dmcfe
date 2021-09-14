@@ -8,8 +8,7 @@ use std::thread;
 const MAX_SIZE: usize = 2 ^ 16;
 
 // wrapper to ease the use of this module
-pub type Sender<T> = mpsc::Sender<Packet<T>>;
-pub type Bus = thread::JoinHandle<Result<()>>;
+pub type BusTx<T> = mpsc::Sender<Packet<T>>;
 
 /// Unicast request:
 /// - `id`:     client ID of the receiver
@@ -52,7 +51,7 @@ pub enum Packet<T> {
     SigTerm,
 }
 
-/// Broadcast structure:
+/// Broadcast data structure:
 /// - `data`:       data to share
 /// - `id_list`:    holds the ID of the clients who already have the data
 struct BroadcastData<T> {
@@ -60,21 +59,54 @@ struct BroadcastData<T> {
     id_list: HashSet<usize>,
 }
 
-struct DataBase<T> {
+/// Bus structure:
+/// - `n`:      number of client associated to the bus
+/// - `tx`:     transmitter channel to the bus
+/// - `bus`:    handle for keeping track of the thread running the bus
+pub struct Bus<T: Clone + Send + Sync> {
+    pub tx: BusTx<T>,
+    bus: thread::JoinHandle<Result<()>>,
+}
+
+impl<T: 'static + Clone + Send + Sync> Bus<T> {
+    /// Open a bus.
+    /// - `n`:  number of clients for this bus
+    pub fn open(n: usize) -> Self {
+        let (tx, rx) = mpsc::channel::<Packet<T>>();
+        let bus = thread::spawn(move || -> Result<()> { launch_bus(rx, n) });
+        Bus::<T> { tx, bus }
+    }
+
+    /// Close the given bus.
+    pub fn close(self) -> Result<()> {
+        safe_send(&self.tx, Packet::SigTerm)?;
+        self.bus
+            .join()
+            .map_err(|err| eyre::eyre!("Error Join: {:?}", err))?
+    }
+}
+
+/// Bus queues where received data are stored waiting for clients to fetch them
+/// - `private`:    unicast queue
+/// - `public`:     broadcast queue
+struct BusQueues<T> {
     private: Vec<Vec<T>>,
     public: Vec<BroadcastData<T>>,
 }
 
-impl<T: Clone> DataBase<T> {
-    /// Returns a new database with initialized for the given client number
+impl<T: Clone> BusQueues<T> {
+    /// Returns a new bus queue initialized for the given client number
+    /// - `n`:  number of clients
     fn new(n: usize) -> Self {
-        DataBase {
+        BusQueues {
             private: vec![vec![]; n],
             public: vec![],
         }
     }
 
     /// Manage fetch requests.
+    /// - `request`:    fetch request
+    /// - `n`:          number of clients
     fn manage_fetch(&mut self, request: FetchRequest<T>, n: usize) -> Result<()> {
         if request.id < n {
             self.send_data(request, n)?;
@@ -144,7 +176,7 @@ impl<T: Clone> DataBase<T> {
 /// - `n`:  number of clients
 fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
     // DB where data are stored, waiting for the receiver to fetch them
-    let mut db = DataBase::new(n);
+    let mut db = BusQueues::new(n);
 
     // listen for requests
     loop {
@@ -159,25 +191,28 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-//                                 IBUS APIs                                 //
-///////////////////////////////////////////////////////////////////////////////
+fn safe_send<T>(tx: &mpsc::Sender<T>, data: T) -> Result<()> {
+    tx.send(data)
+        .map_err(|err| eyre::eyre!("Send Error: {:?}", err))
+}
 
 /// Broadcast the given data. It will make it accessible to any client
 /// fetching data from the bus.
 /// TODO: the sender will get its broadcasted data at the next fetch
 /// - `tx`:     channel used to send the packet to the bus
 /// - `data`:   data to send
-pub fn broadcast<T>(tx: &Sender<T>, data: T) -> Result<()> {
-    let request = Packet::SendRequest(SendRequest::BroadcastRequest(BroadcastRequest { data }));
-    safe_send(tx, request)
+pub fn broadcast<T>(tx: &BusTx<T>, data: T) -> Result<()> {
+    safe_send(
+        tx,
+        Packet::SendRequest(SendRequest::BroadcastRequest(BroadcastRequest { data })),
+    )
 }
 
 /// Send the given data to the client with the given ID.
 /// - `tx`:     bus transmission channel
 /// - `id`:     receiver client id
 /// - `data`:   data to send
-pub fn unicast<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
+pub fn unicast<T>(tx: &BusTx<T>, id: usize, data: T) -> Result<()> {
     safe_send(
         tx,
         Packet::SendRequest(SendRequest::UnicastRequest(UnicastRequest { id, data })),
@@ -187,7 +222,7 @@ pub fn unicast<T>(tx: &Sender<T>, id: usize, data: T) -> Result<()> {
 /// Get all the data for the client with the given ID.
 /// - `tx`: bus transmission channel
 /// - `id`: receiver client ID
-pub fn get<T>(tx: &Sender<T>, id: usize) -> Result<Vec<T>> {
+pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
     //create communication channels
     let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
     // contact the bus to get the data
@@ -202,27 +237,4 @@ pub fn get<T>(tx: &Sender<T>, id: usize) -> Result<Vec<T>> {
         res.push(data);
     }
     Ok(res)
-}
-
-/// Open a bus.
-/// - `n`:  number of clients for this bus
-/// Return the bus transmission channel and the bus handle
-pub fn open<T: 'static + Clone + Send>(n: usize) -> (Bus, Sender<T>) {
-    let (tx, rx) = mpsc::channel::<Packet<T>>();
-    let bus = thread::spawn(move || -> Result<()> { launch_bus(rx, n) });
-    (bus, tx)
-}
-
-/// Close the given bus.
-/// - `bus`:    bus handle
-/// - `tx`:     bus transmission channel
-pub fn close<T>(bus: Bus, tx: Sender<T>) -> Result<()> {
-    safe_send(&tx, Packet::SigTerm)?;
-    bus.join()
-        .map_err(|err| eyre::eyre!("Error Join: {:?}", err))?
-}
-
-fn safe_send<T>(tx: &mpsc::Sender<T>, data: T) -> Result<()> {
-    tx.send(data)
-        .map_err(|err| eyre::eyre!("Send Error: {:?}", err))
 }

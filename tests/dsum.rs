@@ -16,8 +16,8 @@ fn client_simulation(
     n: usize,
     l: usize,
     xi: Vec<Scalar>,
-    pk_bus_tx: &ibus::Sender<(usize, G1Projective)>,
-    data_bus_tx: &ibus::Sender<Scalar>,
+    pk_bus_tx: &ibus::BusTx<(usize, G1Projective)>,
+    data_bus_tx: &ibus::BusTx<Scalar>,
 ) -> Result<Scalar> {
     // generate key pair
     let (ski, pki) = dsum::client_setup();
@@ -61,8 +61,8 @@ fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
     // Launch the buses
     // Two buses are needed since the type of the pk and the published
     // cyphertexts are different (thus different sizes)
-    let (pk_bus, pk_tx) = ibus::open(n);
-    let (data_bus, data_tx) = ibus::open(n);
+    let pk_bus = ibus::Bus::open(n);
+    let data_bus = ibus::Bus::open(n);
 
     // Launch the clients
     let children: Vec<thread::JoinHandle<Result<Scalar>>> = X
@@ -70,8 +70,8 @@ fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
         .enumerate()
         .map(|(id, xi)| {
             let xi = xi.clone();
-            let data_tx = data_tx.clone();
-            let pk_tx = pk_tx.clone();
+            let data_tx = data_bus.tx.clone();
+            let pk_tx = pk_bus.tx.clone();
             thread::spawn(move || client_simulation(id, n, l, xi, &pk_tx, &data_tx))
         })
         .collect();
@@ -83,8 +83,8 @@ fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
     }
 
     // Shut the buses down
-    ibus::close(pk_bus, pk_tx)?;
-    ibus::close(data_bus, data_tx)?;
+    pk_bus.close()?;
+    data_bus.close()?;
 
     Ok(res)
 }

@@ -8,34 +8,34 @@ fn simulate_send_client(
     id: usize,
     data: &[usize],
     receiver: usize,
-    bus_tx: &ibus::Sender<usize>,
+    tx: &ibus::BusTx<usize>,
 ) -> Result<Vec<usize>> {
     // load all data inside the bus
     for &datum in data.iter() {
-        ibus::unicast(bus_tx, receiver, datum)?;
+        ibus::unicast(tx, receiver, datum)?;
     }
 
     // get the data sent to this client
-    ibus::get(bus_tx, id)
+    ibus::get(tx, id)
 }
 
 fn simulate_broadcast_client(
     id: usize,
     n: usize,
     m: usize,
-    bus_tx: &ibus::Sender<usize>,
+    tx: &ibus::BusTx<usize>,
 ) -> Result<Vec<usize>> {
     let data = vec![rand::random(); m];
 
     // broadcast all data inside the bus
     for &datum in data.iter() {
-        ibus::broadcast(bus_tx, datum)?;
+        ibus::broadcast(tx, datum)?;
     }
 
     // get the data sent to this client
     let mut res = Vec::with_capacity(n);
     while res.len() < n * m {
-        res.append(&mut ibus::get(&bus_tx, id)?)
+        res.append(&mut ibus::get(tx, id)?)
     }
     Ok(res)
 }
@@ -45,7 +45,7 @@ fn test_ibus_send() -> Result<()> {
     let n = rand::thread_rng().gen_range(10..20);
 
     // launch the ibus client
-    let (bus, bus_tx) = ibus::open(n);
+    let bus = ibus::Bus::open(n);
 
     // use two successive steps in order to assert that data disappears from the bus when it is fetched
     for step in 1..3 {
@@ -56,11 +56,11 @@ fn test_ibus_send() -> Result<()> {
 
         // launch the clients
         for id in 0..n {
-            let bus_tx = bus_tx.clone();
+            let tx = bus.tx.clone();
             let data = data[id].to_vec();
             let receiver = receivers[id];
             clients.push(thread::spawn(move || {
-                simulate_send_client(id, &data, receiver, &bus_tx)
+                simulate_send_client(id, &data, receiver, &tx)
             }));
         }
 
@@ -93,14 +93,14 @@ fn test_ibus_send() -> Result<()> {
     }
 
     // close the bus
-    ibus::close(bus, bus_tx)
+    bus.close()
 }
 
 #[test]
 fn test_ibus_broadcast() -> Result<()> {
     // launch the ibus client
     let n = rand::thread_rng().gen_range(10..20);
-    let (bus, bus_tx) = ibus::open(n);
+    let bus = ibus::Bus::open(n);
 
     // use two successive steps in order to assert that data disappears from the bus when it is fetched by all clients
     for step in 1..3 {
@@ -110,9 +110,9 @@ fn test_ibus_broadcast() -> Result<()> {
         // launch the clients
         let m = rand::thread_rng().gen_range(10..20);
         for id in 0..n {
-            let bus_tx = bus_tx.clone();
+            let tx = bus.tx.clone();
             clients.push(thread::spawn(move || {
-                simulate_broadcast_client(id, n, m, &bus_tx)
+                simulate_broadcast_client(id, n, m, &tx)
             }));
         }
 
@@ -149,5 +149,5 @@ fn test_ibus_broadcast() -> Result<()> {
     }
 
     // close the bus
-    ibus::close(bus, bus_tx)
+    bus.close()
 }
