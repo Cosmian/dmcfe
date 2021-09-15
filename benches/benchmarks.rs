@@ -1,5 +1,5 @@
+mod benchmark_tools;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use dmcfe::benchmark_tools;
 use std::time::Duration;
 
 fn benchmark_dlp(c: &mut Criterion) {

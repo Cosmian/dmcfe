@@ -1,7 +1,9 @@
 #![allow(non_snake_case)]
 
+mod bus;
+
 use bls12_381::{G1Projective, Scalar};
-use dmcfe::{dsum, ibus};
+use dmcfe::dsum;
 use eyre::Result;
 use rand::Rng;
 use std::thread;
@@ -16,19 +18,19 @@ fn client_simulation(
     n: usize,
     l: usize,
     xi: Vec<Scalar>,
-    pk_bus_tx: &ibus::BusTx<(usize, G1Projective)>,
-    data_bus_tx: &ibus::BusTx<Scalar>,
+    pk_bus_tx: &bus::BusTx<(usize, G1Projective)>,
+    data_bus_tx: &bus::BusTx<Scalar>,
 ) -> Result<Scalar> {
     // generate key pair
     let (ski, pki) = dsum::client_setup();
 
     // publish the public key
-    ibus::broadcast(pk_bus_tx, (id, pki))?;
+    bus::broadcast(pk_bus_tx, (id, pki))?;
 
     // get the public keys
     let mut pk = Vec::with_capacity(n);
     while pk.len() < n {
-        pk.append(&mut ibus::get(pk_bus_tx, id)?);
+        pk.append(&mut bus::get(pk_bus_tx, id)?);
     }
 
     //encrypt the data
@@ -39,13 +41,13 @@ fn client_simulation(
 
     // share the chiphered data
     for &ci in c.iter() {
-        ibus::broadcast(data_bus_tx, ci)?;
+        bus::broadcast(data_bus_tx, ci)?;
     }
 
     //get all cyphered data
     let mut c = Vec::with_capacity(n * xi.len());
     while c.len() < n * xi.len() {
-        c.append(&mut ibus::get(data_bus_tx, id)?);
+        c.append(&mut bus::get(data_bus_tx, id)?);
     }
 
     Ok(dsum::combine(c))
@@ -61,8 +63,8 @@ fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
     // Launch the buses
     // Two buses are needed since the type of the pk and the published
     // cyphertexts are different (thus different sizes)
-    let pk_bus = ibus::Bus::open(n);
-    let data_bus = ibus::Bus::open(n);
+    let pk_bus = bus::Bus::open(n);
+    let data_bus = bus::Bus::open(n);
 
     // Launch the clients
     let children: Vec<thread::JoinHandle<Result<Scalar>>> = X
