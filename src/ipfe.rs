@@ -2,11 +2,28 @@ use crate::tools;
 use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
+/// IPFE private key type
+pub type PrivateKey = Scalar;
+
+/// IPFE public key type
+pub type PublicKey = G1Projective;
+
+/// IPFE decryption key type
+pub type DecryptionKey = Scalar;
+
+/// IPFE cypher text structure
+/// - `c0`: `g^r`
+/// - `cx`: list of `ci` where `ci = hi^r = g^(si * r)`
+pub struct CypherText {
+    pub c0: G1Projective,
+    pub cx: Vec<G1Projective>,
+}
+
 /// This algorithm implements the `Setup` function of the IPFE scheme.
 /// It returns `(msk, mpk)`, the master secret an public keys.
 ///
 /// - l   : dimension of the vector space
-pub fn setup(l: usize) -> (Vec<Scalar>, Vec<G1Projective>) {
+pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
     let msk = (0..l).map(|_| tools::random_scalar()).collect::<Vec<_>>();
     let MPK = (0..l).map(|i| tools::smul_in_g1(&msk[i])).collect();
     (msk, MPK)
@@ -17,24 +34,24 @@ pub fn setup(l: usize) -> (Vec<Scalar>, Vec<G1Projective>) {
 ///
 /// - `MPK` : the master public key
 /// - `x`   : the text to be encrypted
-pub fn encrypt(MPK: &[G1Projective], x: &[Scalar]) -> Result<(G1Projective, Vec<G1Projective>)> {
+pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
     eyre::ensure!(x.len() == MPK.len(), "Input text has wrong dimension!");
     let r = tools::random_scalar();
     let c0 = tools::smul_in_g1(&r);
-    let c = x
+    let cx = x
         .iter()
         .zip(MPK.iter())
         .map(|(&xi, &hi)| tools::smul_in_g1(&xi) + (hi * r))
         .collect();
-    Ok((c0, c))
+    Ok(CypherText { c0, cx })
 }
 
-/// This algorithm implements the `KeyDer` function of the IPFE scheme.
+/// Compute the functional decryption key of the IPFE algorithm.
 /// It returns `sky=<s,y>`.
 ///
 /// - `msk` : the master secret key
 /// - `y`   : the vector associated to the decryptied function
-pub fn key_der(msk: &[Scalar], y: &[Scalar]) -> Result<Scalar> {
+pub fn key_der(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
     eyre::ensure!(y.len() == msk.len(), "Input function has wrong dimensions!");
     Ok(y.iter().zip(msk.iter()).map(|(yi, si)| yi * si).sum())
 }
@@ -45,11 +62,11 @@ pub fn key_der(msk: &[Scalar], y: &[Scalar]) -> Result<Scalar> {
 ///
 /// - `C`   : the cypher text
 /// - `y`   : the vector associated to the decrypted function
-/// - `sky` : the functional key associated to the function
-pub fn decrypt(C: &(G1Projective, Vec<G1Projective>), y: &[Scalar], sky: &Scalar) -> G1Projective {
-    C.1.iter()
+/// - `sky` : the decryption key associated to the function
+pub fn decrypt(C: &CypherText, y: &[Scalar], sky: &DecryptionKey) -> G1Projective {
+    C.cx.iter()
         .zip(y.iter())
         .map(|(ci, yi)| ci * yi)
         .sum::<G1Projective>()
-        - C.0 * sky
+        - C.c0 * sky
 }
