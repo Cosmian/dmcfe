@@ -69,6 +69,7 @@ pub(crate) fn hash_to_scalar(
     _tmul: &G1Projective,
     _l: usize,
 ) -> Scalar {
+    // TODO: finish this function
     Scalar::zero()
 }
 

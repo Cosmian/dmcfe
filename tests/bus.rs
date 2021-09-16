@@ -92,6 +92,7 @@ impl<T: 'static + Clone + Send + Sync> Bus<T> {
 /// - `private`:    unicast queue
 /// - `public`:     broadcast queue
 struct BusQueues<T> {
+    n: usize,
     private: Vec<Vec<T>>,
     public: Vec<BroadcastData<T>>,
 }
@@ -101,6 +102,7 @@ impl<T: Clone> BusQueues<T> {
     /// - `n`:  number of clients
     fn new(n: usize) -> Self {
         BusQueues {
+            n,
             private: vec![vec![]; n],
             public: vec![],
         }
@@ -109,16 +111,16 @@ impl<T: Clone> BusQueues<T> {
     /// Manage fetch requests.
     /// - `request`:    fetch request
     /// - `n`:          number of clients
-    fn manage_fetch(&mut self, request: FetchRequest<T>, n: usize) -> Result<()> {
-        if request.id < n {
-            self.send_data(request, n)?;
+    fn manage_fetch(&mut self, request: FetchRequest<T>) -> Result<()> {
+        if request.id < self.n {
+            self.send_data(request)?;
         } else {
             safe_send(
                 &request.tx,
                 Err(eyre::eyre!(
                     "Cannot serve unplanned client (client id {} > id max {})",
                     request.id,
-                    n - 1
+                    self.n - 1
                 )),
             )?;
         }
@@ -127,7 +129,7 @@ impl<T: Clone> BusQueues<T> {
 
     /// Send all data associated with the client ID of the fetch request
     /// into the transmission channel of this request.
-    fn send_data(&mut self, fetch_request: FetchRequest<T>, n: usize) -> Result<()> {
+    fn send_data(&mut self, fetch_request: FetchRequest<T>) -> Result<()> {
         // get the client ID and transmission channel
         let FetchRequest { tx, id } = fetch_request;
 
@@ -142,9 +144,8 @@ impl<T: Clone> BusQueues<T> {
         for (index, broadcast) in self.public.iter_mut().enumerate() {
             if broadcast.id_list.get(&id).is_none() {
                 // TODO: do not clone data for the last client
-                tx.send(Ok(Some(broadcast.data.clone())))
-                    .map_err(|_| eyre::eyre!("Error send"))?;
-                if broadcast.id_list.len() < n {
+                safe_send(&tx, Ok(Some(broadcast.data.clone())))?;
+                if broadcast.id_list.len() < self.n {
                     broadcast.id_list.insert(id);
                 } else {
                     // if all clients have received the data, remove it
@@ -165,8 +166,14 @@ impl<T: Clone> BusQueues<T> {
                 id_list: HashSet::new(),
             }),
             SendRequest::UnicastRequest(unicast) => {
-                if self.private.len() < MAX_SIZE && unicast.id < self.private.len() {
-                    self.private[unicast.id].push(unicast.data);
+                if unicast.id < self.n {
+                    if self.private[unicast.id].len() < MAX_SIZE {
+                        self.private[unicast.id].push(unicast.data);
+                    } else {
+                        eyre::eyre!("Cannot send data to client {}, queue is full!", unicast.id);
+                    }
+                } else {
+                    eyre::eyre!("Cannot send data to client {}", unicast.id);
                 }
             }
         }
@@ -187,7 +194,7 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
             .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))?
         {
             Packet::SendRequest(request) => db.manage_send(request),
-            Packet::FetchRequest(request) => db.manage_fetch(request, n)?,
+            Packet::FetchRequest(request) => db.manage_fetch(request)?,
             Packet::SigTerm => return Ok(()),
         }
     }
