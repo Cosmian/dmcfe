@@ -24,8 +24,12 @@ OK: transform the crate into a library one
 - complete notes
 - write a real and nice README file :)
 - see how to return `Result<T>` in closures for `map` and `for_each` methods
+- find a way to attribute a number to each client without central instance => use lock (mutex) on shared value
+- implement `hash_to_scalar` (maybe hash256 + `from_raw`)
+- implement `h_i_j`
 
 ## Bibliography
 
 [1] Shi Bai, Richard P.Brent, On the Efficiency of Pollard's Rho Method for Discrete Logarithms
+
 [2] Teske (1998), Speeding up Pollard's rho method for computing discrete logarithms

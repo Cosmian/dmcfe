@@ -125,10 +125,15 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
 
 #[test]
 fn test_mcfe() -> Result<()> {
+    // number of clients
     let n = rand::thread_rng().gen_range(2..20);
+    // number of contributions per client
     let m = rand::thread_rng().gen_range(2..10);
+    // messages
     let x = vec![vec![random_scalar(); m]; n];
+    // decryption function
     let y = vec![vec![random_scalar(); m]; n];
+    // label
     let l = rand::random(); // TODO: use a timestamp
 
     // compute the solution `G * <x,y>`

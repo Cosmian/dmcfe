@@ -55,15 +55,15 @@ pub fn setup(n: usize, m: usize) -> Vec<EncryptionKey> {
 /// - `l`:      label
 pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], l: usize) -> Result<Vec<CypherText>> {
     let (p1, p2) = tools::double_hash_to_curve(l);
-    let Ul = tools::hash_to_curve(l);
     let R1 = tools::mat_mul(&eki.s, &[p1, p2])?;
-    let R2: Vec<G1Projective> = eki.msk.iter().map(|si| Ul * si).collect();
     let ci: Vec<G1Projective> = xi
         .iter()
         .zip(R1.iter())
         .map(|(xij, r)| r + G1Projective::generator() * xij)
         .collect();
 
+    let Ul = tools::hash_to_curve(l);
+    let R2: Vec<G1Projective> = eki.msk.iter().map(|mski| Ul * mski).collect();
     Ok(ci.iter().zip(R2.iter()).map(|(cij, r)| r + cij).collect())
 }
 
