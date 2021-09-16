@@ -5,6 +5,7 @@ use bls12_381::{
     G1Affine, G1Projective, G2Projective, Scalar,
 };
 use eyre::Result;
+use sha2::{Digest, Sha512};
 
 const RAW_SCALAR_SIZE: usize = 4;
 const DST: &[u8] = b"simple_DST";
@@ -18,6 +19,14 @@ pub(crate) fn integer_to_scalar(x: u64) -> Scalar {
 /// Draw a random scalar from Fp.
 pub(crate) fn random_scalar() -> Scalar {
     Scalar::from_raw([rand::random(); RAW_SCALAR_SIZE])
+}
+
+pub(crate) fn scalars_to_bytes(x: &[Scalar]) -> Vec<u8> {
+    let mut res = Vec::new();
+    x.iter().for_each(|xi| {
+        res.append(&mut xi.to_bytes().to_vec());
+    });
+    res
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
@@ -64,13 +73,24 @@ pub(crate) fn double_hash_to_curve(m: usize) -> (G1Projective, G1Projective) {
 }
 
 pub(crate) fn hash_to_scalar(
-    _tmin: &G1Projective,
-    _tmax: &G1Projective,
-    _tmul: &G1Projective,
-    _l: usize,
+    tmin: &G1Projective,
+    tmax: &G1Projective,
+    tmul: &G1Projective,
+    l: &[u8],
 ) -> Scalar {
-    // TODO: finish this function
-    Scalar::zero()
+    let mut m = [0; 64];
+    let mut hasher = Sha512::new();
+    hasher.update(G1Affine::to_compressed(&G1Affine::from(tmin)));
+    hasher.update(G1Affine::to_compressed(&G1Affine::from(tmax)));
+    hasher.update(G1Affine::to_compressed(&G1Affine::from(tmul)));
+    hasher.update(l);
+    hasher
+        .finalize()
+        .as_slice()
+        .iter()
+        .enumerate()
+        .for_each(|(i, val)| m[i] = *val);
+    Scalar::from_bytes_wide(&m)
 }
 
 /// generate a random (m,n) matrix of `Fp` elements.
