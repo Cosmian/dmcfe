@@ -18,21 +18,21 @@ pub fn setup(m: usize) -> (ipmcfe::EncryptionKey, dsum::KeyPair) {
 /// - `ski`:    DSum secret key
 /// - `pk`:     list of couple (DSum client ID, DSum public key)
 pub fn dkey_gen_share(
-    id: usize,
     di: DVec<Scalar>,
     ski: &dsum::PrivateKey,
-    pk: &[(usize, dsum::PublicKey)],
+    pki: &dsum::PublicKey,
+    pk: &[dsum::PublicKey],
     y: &[Vec<Scalar>],
 ) -> Result<DVec<dsum::CypherText>> {
     // use y as label
     let mut l = Vec::new();
-    for yi in y {
+    y.iter().for_each(|yi| {
         l.append(&mut tools::scalars_to_bytes(yi));
-    }
+    });
     // encode di
     Ok([
-        dsum::encode(id, &di[0], ski, pk, &l),
-        dsum::encode(id, &di[1], ski, pk, &l),
+        dsum::encode(&di[0], ski, pki, pk, &l),
+        dsum::encode(&di[1], ski, pki, pk, &l),
     ])
 }
 

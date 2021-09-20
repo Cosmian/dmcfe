@@ -27,15 +27,15 @@
 //!
 //! ``` text
 //! for i in range(0,m):
-//! 	v <- (i.g)
-//! 	store (i,v)
+//!     v <- (i.g)
+//!     store (i,v)
 //!
 //! a <- (-m.g)
 //!
 //! for k in range(0,n):
-//! 	w <- (h + k.a)
-//! 	if w matches a v of a stored (i,v) pair:
-//! 		return (k,i)
+//!     w <- (h + k.a)
+//!     if w matches a v of a stored (i,v) pair:
+//!         return (k,i)
 //! ```
 //!
 //! When using a hashed map to store the `(i,v)` pairs, the lookup is made in `O(1)`. Therefore the following complexities can be achieved:

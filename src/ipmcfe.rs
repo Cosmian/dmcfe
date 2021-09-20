@@ -52,15 +52,14 @@ pub fn setup(m: usize) -> EncryptionKey {
 pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], l: usize) -> Result<Vec<CypherText>> {
     let (p1, p2) = tools::double_hash_to_curve(l);
     let R1 = tools::mat_mul(&eki.s, &[p1, p2])?;
-    let ci: Vec<G1Projective> = xi
+    let ci = xi
         .iter()
         .zip(R1.iter())
-        .map(|(xij, r)| r + G1Projective::generator() * xij)
-        .collect();
+        .map(|(xij, r)| r + G1Projective::generator() * xij);
 
     let Ul = tools::hash_to_curve(l);
-    let R2: Vec<G1Projective> = eki.msk.iter().map(|mski| Ul * mski).collect();
-    Ok(ci.iter().zip(R2.iter()).map(|(cij, r)| r + cij).collect())
+    let R2 = eki.msk.iter().map(|mski| Ul * mski);
+    Ok(ci.zip(R2).map(|(cij, r)| r + cij).collect())
 }
 
 /// Compute the partial decryption key for a client `i`.
@@ -111,16 +110,15 @@ fn ip_decrypt(Ci: &[CypherText], yi: &[Scalar], dki: &Scalar, l: usize) -> G1Pro
 /// - `dk`: the decryption key
 /// - `l`:  the label
 pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, l: usize) -> G1Projective {
-    let dl: Vec<G1Projective> = C
+    let dl = C
         .iter()
         .zip(dk.y.iter())
         .zip(dk.ip_dk.iter())
-        .map(|((Ci, yi), ip_dki)| ip_decrypt(Ci, yi, ip_dki, l))
-        .collect();
+        .map(|((Ci, yi), ip_dki)| ip_decrypt(Ci, yi, ip_dki, l));
 
     // compute `d^T.[u_l]`
     let double_Ul = tools::double_hash_to_curve(l);
     let d: G1Projective = double_Ul.0 * dk.d[0] + double_Ul.1 * dk.d[1];
 
-    dl.iter().sum::<G1Projective>() - d
+    dl.sum::<G1Projective>() - d
 }
