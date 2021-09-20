@@ -13,10 +13,11 @@ pub fn setup(m: usize) -> (ipmcfe::EncryptionKey, dsum::KeyPair) {
 }
 
 /// Encrypt the given MCFE partial decryption key using the DSum algorithm.
-/// - `id`:     client ID`
-/// - `dki`:    MCFE partial decryption key
+/// - `di`:     MCFE partial decryption key
 /// - `ski`:    DSum secret key
-/// - `pk`:     list of couple (DSum client ID, DSum public key)
+/// - `pki`:    DSum public key
+/// - `pk`:     list of all DSum public keys
+/// - `y`:      decryption function
 pub fn dkey_gen_share(
     di: DVec<Scalar>,
     ski: &dsum::PrivateKey,

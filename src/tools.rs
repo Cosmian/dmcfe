@@ -59,17 +59,14 @@ pub(crate) fn get_inverse(P: &G1Projective) -> G1Projective {
 
 /// Returns the hash of the given `usize` in `G1`
 /// - `m`:  given `usize`
-pub(crate) fn hash_to_curve(m: usize) -> G1Projective {
-    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(m.to_be_bytes(), DST)
+pub(crate) fn hash_to_curve(m: &[u8]) -> G1Projective {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(m, DST)
 }
 
 /// Returns the hash of the given `usize` in `G1xG1`
 /// - `m`:  given `usize`
-pub(crate) fn double_hash_to_curve(m: usize) -> (G1Projective, G1Projective) {
-    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(
-        m.to_be_bytes(),
-        DST,
-    )
+pub(crate) fn double_hash_to_curve(m: &[u8]) -> (G1Projective, G1Projective) {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(m, DST)
 }
 
 pub(crate) fn hash_to_scalar(

@@ -35,7 +35,7 @@ fn encrypt_simulation(
     tx: mpsc::Sender<Contribution>,
 ) -> Result<()> {
     tx.send(Contribution {
-        cx: ipmcfe::encrypt(eki, xi, l)?,
+        cx: ipmcfe::encrypt(eki, xi, &l.to_be_bytes())?,
         key: ipmcfe::dkey_gen(eki, yi)?,
     })?;
     Ok(())
@@ -59,7 +59,7 @@ fn decrypt_simulation(
     // Generate the decryption key
     let dk = ipmcfe::key_comb(&keys)?;
 
-    Ok(ipmcfe::decrypt(&C, &dk, l))
+    Ok(ipmcfe::decrypt(&C, &dk, &l.to_be_bytes()))
 }
 
 /// Simulate a complete MCFE encryption and decryption process. The encryption
