@@ -11,7 +11,7 @@ pub type PublicKey = G1Projective;
 /// IPFE decryption key type
 pub type DecryptionKey = Scalar;
 
-/// IPFE cypher text structure
+/// IPFE cyphertext structure
 /// - `c0`: `g^r`
 /// - `cx`: list of `ci` where `ci = hi^r = g^(si * r)`
 pub struct CypherText {

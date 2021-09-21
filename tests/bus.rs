@@ -232,7 +232,7 @@ pub fn unicast<T>(tx: &BusTx<T>, id: usize, data: T) -> Result<()> {
 /// - `tx`: bus transmission channel
 /// - `id`: receiver client ID
 pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
-    //create communication channels
+    // create communication channels
     let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
     // contact the bus to get the data
     safe_send(tx, Packet::FetchRequest(FetchRequest { id, tx: client_tx }))?;
@@ -254,7 +254,7 @@ pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
 pub fn wait_n<T>(tx: &BusTx<T>, n: usize, id: usize) -> Result<Vec<T>> {
     let mut res = Vec::new();
     while n > res.len() {
-        //create communication channels
+        // create communication channels
         let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
         // contact the bus to get the data
         safe_send(tx, Packet::FetchRequest(FetchRequest { id, tx: client_tx }))?;

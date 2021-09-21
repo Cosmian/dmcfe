@@ -19,7 +19,7 @@ pub struct EncryptionKey {
 /// - `di`:     client contribution to the decrytion key, `di = Si^T.yi`
 /// - `ip_dki`: IPFE decryption key for this client contributions
 pub struct PartialDecryptionKey {
-    pub yi: Vec<Scalar>,
+    pub(crate) yi: Vec<Scalar>,
     pub di: [Scalar; 2],
     pub ip_dki: Scalar,
 }
@@ -29,9 +29,9 @@ pub struct PartialDecryptionKey {
 /// - `d`:      the MCFE `dk_y = Sum(Si^T.yi)`
 /// - `ip_dk`:  IPFE decryption key
 pub struct DecryptionKey {
-    pub y: Vec<Vec<Scalar>>,
-    pub d: Vec<Scalar>,
-    pub ip_dk: Vec<Scalar>,
+    pub(crate) y: Vec<Vec<Scalar>>,
+    pub(crate) d: Vec<Scalar>,
+    pub(crate) ip_dk: Vec<Scalar>,
 }
 
 /// Compute the client encryption keys.

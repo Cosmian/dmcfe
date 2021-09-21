@@ -8,11 +8,6 @@ use eyre::Result;
 use rand::Rng;
 use std::thread;
 
-/// Draw a random scalar from Fp.
-fn random_scalar() -> Scalar {
-    Scalar::from_raw([rand::random(); 4])
-}
-
 fn client_simulation(
     id: usize,
     n: usize,
@@ -37,7 +32,7 @@ fn client_simulation(
     //encrypt the data
     let c: Vec<dsum::CypherText> = xi
         .iter()
-        .map(|xij| -> dsum::CypherText { dsum::encode(id, xij, &ski, &pk, &l.to_le_bytes()) })
+        .map(|xij| dsum::encode(id, xij, &ski, &pk, &l.to_le_bytes()))
         .collect();
 
     // share the chiphered data
@@ -98,7 +93,7 @@ fn test_dsum() -> Result<()> {
     // messages: n clients with m contribution each
     let n = rand::thread_rng().gen_range(2..20);
     let m = rand::thread_rng().gen_range(2..5);
-    let x = vec![vec![random_scalar(); m]; n];
+    let x = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
 
     // label
     let l = rand::random(); // TODO: use a timestamp

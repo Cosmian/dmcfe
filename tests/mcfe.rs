@@ -23,11 +23,6 @@ struct Contribution {
     key: ipmcfe::PartialDecryptionKey,
 }
 
-/// Draw a random scalar from Fp.
-fn random_scalar() -> Scalar {
-    Scalar::from_raw([rand::random(); 4])
-}
-
 /// Simulate a client:
 /// - compute the cyphered contributions;
 /// - compute the partial decryption key;
@@ -130,9 +125,9 @@ fn test_mcfe() -> Result<()> {
     // number of contributions per client
     let m = rand::thread_rng().gen_range(2..10);
     // messages
-    let x = vec![vec![random_scalar(); m]; n];
+    let x = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // decryption function
-    let y = vec![vec![random_scalar(); m]; n];
+    let y = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // label
     let l = rand::random(); // TODO: use a timestamp
 
