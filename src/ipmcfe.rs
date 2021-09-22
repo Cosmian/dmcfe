@@ -19,9 +19,9 @@ pub struct EncryptionKey {
 /// - `di`:     client contribution to the decrytion key, `di = Si^T.yi`
 /// - `ip_dki`: IPFE decryption key for this client contributions
 pub struct PartialDecryptionKey {
-    yi: Vec<Scalar>,
-    di: [Scalar; 2],
-    ip_dki: Scalar,
+    pub(crate) yi: Vec<Scalar>,
+    pub di: [Scalar; 2],
+    pub ip_dki: Scalar,
 }
 
 /// MCFE decryption key type
@@ -29,24 +29,20 @@ pub struct PartialDecryptionKey {
 /// - `d`:      the MCFE `dk_y = Sum(Si^T.yi)`
 /// - `ip_dk`:  IPFE decryption key
 pub struct DecryptionKey {
-    y: Vec<Vec<Scalar>>,
-    d: Vec<Scalar>,
-    ip_dk: Vec<Scalar>,
+    pub(crate) y: Vec<Vec<Scalar>>,
+    pub(crate) d: Vec<Scalar>,
+    pub(crate) ip_dk: Vec<Scalar>,
 }
 
 /// Compute the client encryption keys.
 /// - `n`: number of clients
 /// - `m`: number of contributions per client
-pub fn setup(n: usize, m: usize) -> Vec<EncryptionKey> {
-    (0..n)
-        .map(|_| {
-            let (msk, _) = ipfe::setup(m);
-            EncryptionKey {
-                s: tools::random_mat_gen(m, 2),
-                msk,
-            }
-        })
-        .collect()
+pub fn setup(m: usize) -> EncryptionKey {
+    let (msk, _) = ipfe::setup(m);
+    EncryptionKey {
+        s: tools::random_mat_gen(m, 2),
+        msk,
+    }
 }
 
 /// Encrypts the data of a client `i` using its encryption key for a given label.
@@ -80,11 +76,7 @@ pub fn dkey_gen(eki: &EncryptionKey, yi: &[Scalar]) -> Result<PartialDecryptionK
     Ok(PartialDecryptionKey {
         yi: (*yi).to_vec(),
         di: [dky_i[0], dky_i[1]],
-        ip_dki: yi
-            .iter()
-            .zip(eki.msk.iter())
-            .map(|(yij, sij)| yij * sij)
-            .sum(),
+        ip_dki: ipfe::key_der(&eki.msk, yi)?,
     })
 }
 
@@ -105,24 +97,25 @@ pub fn key_comb(dki_vec: &[PartialDecryptionKey]) -> Result<DecryptionKey> {
     Ok(DecryptionKey { y, d, ip_dk })
 }
 
+fn ip_decrypt(Ci: &[CypherText], yi: &[Scalar], dki: &Scalar, l: usize) -> G1Projective {
+    let Ul = tools::hash_to_curve(l);
+    Ci.iter()
+        .zip(yi.iter())
+        .map(|(Cij, yij)| Cij * yij)
+        .sum::<G1Projective>()
+        - Ul * dki
+}
+
 /// Decrypt the given cyphertexts of a given label using the decryption key.
 /// - `C`:  the cyphertexts
 /// - `dk`: the decryption key
 /// - `l`:  the label
 pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, l: usize) -> G1Projective {
-    let Ul = tools::hash_to_curve(l);
     let dl: Vec<G1Projective> = C
         .iter()
         .zip(dk.y.iter())
         .zip(dk.ip_dk.iter())
-        .map(|((Ci, yi), ip_dki)| {
-            // IPFE decryption process
-            Ci.iter()
-                .zip(yi.iter())
-                .map(|(Cij, yij)| Cij * yij)
-                .sum::<G1Projective>()
-                - Ul * ip_dki
-        })
+        .map(|((Ci, yi), ip_dki)| ip_decrypt(Ci, yi, ip_dki, l))
         .collect();
 
     // compute `d^T.[u_l]`

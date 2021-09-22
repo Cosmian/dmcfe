@@ -232,7 +232,7 @@ pub fn unicast<T>(tx: &BusTx<T>, id: usize, data: T) -> Result<()> {
 /// - `tx`: bus transmission channel
 /// - `id`: receiver client ID
 pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
-    //create communication channels
+    // create communication channels
     let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
     // contact the bus to get the data
     safe_send(tx, Packet::FetchRequest(FetchRequest { id, tx: client_tx }))?;
@@ -244,6 +244,25 @@ pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
         .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))??
     {
         res.push(data);
+    }
+    Ok(res)
+}
+/// Get all the data for the client with the given ID.
+/// - `tx`: bus transmission channel
+/// - `n`:  number of data to wait
+/// - `id`: receiver client ID
+pub fn wait_n<T>(tx: &BusTx<T>, n: usize, id: usize) -> Result<Vec<T>> {
+    let mut res = Vec::new();
+    while n > res.len() {
+        // create communication channels
+        let (client_tx, client_rx) = mpsc::channel::<Result<Option<T>>>();
+        // contact the bus to get the data
+        safe_send(tx, Packet::FetchRequest(FetchRequest { id, tx: client_tx }))?;
+        // listen for the bus to get the data
+
+        while let Some(data) = client_rx.recv().map_err(|err| eyre::eyre!("{:?}", err))?? {
+            res.push(data);
+        }
     }
     Ok(res)
 }
@@ -282,11 +301,7 @@ mod test {
         }
 
         // get the data sent to this client
-        let mut res = Vec::with_capacity(n);
-        while res.len() < n * m {
-            res.append(&mut super::get(tx, id)?)
-        }
-        Ok(res)
+        super::wait_n(tx, n * m, id)
     }
 
     #[test]

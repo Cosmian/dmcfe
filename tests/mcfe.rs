@@ -9,7 +9,7 @@
 
 #![allow(non_snake_case)]
 use bls12_381::{G1Projective, Scalar};
-use dmcfe::ip_mcfe;
+use dmcfe::ipmcfe;
 use eyre::Result;
 use rand::Rng;
 use std::sync::mpsc;
@@ -19,13 +19,8 @@ use std::thread;
 // - `cyphertext`:  the cyphered version of the client contributions
 // - `key`:         the partial decryption key
 struct Contribution {
-    cx: Vec<ip_mcfe::CypherText>,
-    key: ip_mcfe::PartialDecryptionKey,
-}
-
-/// Draw a random scalar from Fp.
-fn random_scalar() -> Scalar {
-    Scalar::from_raw([rand::random(); 4])
+    cx: Vec<ipmcfe::CypherText>,
+    key: ipmcfe::PartialDecryptionKey,
 }
 
 /// Simulate a client:
@@ -33,15 +28,15 @@ fn random_scalar() -> Scalar {
 /// - compute the partial decryption key;
 /// - send the cyphertexts and the partial decryption key to the decryption client
 fn encrypt_simulation(
-    eki: &ip_mcfe::EncryptionKey,
+    eki: &ipmcfe::EncryptionKey,
     xi: &[Scalar],
     yi: &[Scalar],
     l: usize,
     tx: mpsc::Sender<Contribution>,
 ) -> Result<()> {
     tx.send(Contribution {
-        cx: ip_mcfe::encrypt(eki, xi, l)?,
-        key: ip_mcfe::dkey_gen(eki, yi)?,
+        cx: ipmcfe::encrypt(eki, xi, l)?,
+        key: ipmcfe::dkey_gen(eki, yi)?,
     })?;
     Ok(())
 }
@@ -53,8 +48,8 @@ fn decrypt_simulation(
     n: usize,
     l: usize,
 ) -> Result<G1Projective> {
-    let mut C: Vec<Vec<ip_mcfe::CypherText>> = Vec::new();
-    let mut keys: Vec<ip_mcfe::PartialDecryptionKey> = Vec::new();
+    let mut C: Vec<Vec<ipmcfe::CypherText>> = Vec::new();
+    let mut keys: Vec<ipmcfe::PartialDecryptionKey> = Vec::new();
     (0..n).for_each(|_| {
         let contrib = rx.recv().unwrap();
         C.push(contrib.cx);
@@ -62,9 +57,9 @@ fn decrypt_simulation(
     });
 
     // Generate the decryption key
-    let dk = ip_mcfe::key_comb(&keys)?;
+    let dk = ipmcfe::key_comb(&keys)?;
 
-    Ok(ip_mcfe::decrypt(&C, &dk, l))
+    Ok(ipmcfe::decrypt(&C, &dk, l))
 }
 
 /// Simulate a complete MCFE encryption and decryption process. The encryption
@@ -94,7 +89,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
     let m = X.first().unwrap().len();
 
     // generate encryption keys
-    let ek = ip_mcfe::setup(n, m);
+    let ek: Vec<ipmcfe::EncryptionKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
 
     // Create the communication channels
     let (tx, rx): (mpsc::Sender<Contribution>, mpsc::Receiver<Contribution>) = mpsc::channel();
@@ -130,9 +125,9 @@ fn test_mcfe() -> Result<()> {
     // number of contributions per client
     let m = rand::thread_rng().gen_range(2..10);
     // messages
-    let x = vec![vec![random_scalar(); m]; n];
+    let x = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // decryption function
-    let y = vec![vec![random_scalar(); m]; n];
+    let y = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // label
     let l = rand::random(); // TODO: use a timestamp
 

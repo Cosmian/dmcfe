@@ -10,5 +10,6 @@ mod notes {
 // Public modules
 pub mod dlp;
 pub mod dsum;
-pub mod ip_mcfe;
+pub mod ipdmcfe;
 pub mod ipfe;
+pub mod ipmcfe;
