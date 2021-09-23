@@ -11,7 +11,7 @@ use std::thread;
 fn client_simulation(
     id: usize,
     n: usize,
-    l: usize,
+    label: usize,
     xi: Vec<Scalar>,
     pk_bus_tx: &bus::BusTx<G1Projective>,
     data_bus_tx: &bus::BusTx<Scalar>,
@@ -27,13 +27,12 @@ fn client_simulation(
     let pk = bus::wait_n(pk_bus_tx, n, id)?;
 
     //encrypt the data
-    let c: Vec<dsum::CypherText> = xi
+    let c = xi
         .iter()
-        .map(|xij| -> dsum::CypherText { dsum::encode(xij, &ski, &pki, &pk, &l.to_le_bytes()) })
-        .collect();
+        .map(|xij| dsum::encode(xij, &ski, &pki, &pk, &label.to_le_bytes()));
 
     // share the chiphered data
-    for &ci in c.iter() {
+    for ci in c {
         bus::broadcast(data_bus_tx, ci)?;
     }
 
@@ -43,7 +42,7 @@ fn client_simulation(
     Ok(dsum::combine(&c))
 }
 
-fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
+fn simulation(x: &[Vec<Scalar>], label: usize) -> Result<Vec<Scalar>> {
     eyre::ensure!(!x.is_empty(), "The given text vector should not be empty!");
 
     // Copy vectors to gain ownership
@@ -57,13 +56,13 @@ fn simulation(x: &[Vec<Scalar>], l: usize) -> Result<Vec<Scalar>> {
 
     // Launch the clients
     let children: Vec<thread::JoinHandle<Result<Scalar>>> = x
-        .into_iter()
+        .iter()
         .enumerate()
         .map(|(id, xi)| {
             let xi = xi.clone();
             let data_tx = data_bus.tx.clone();
             let pk_tx = pk_bus.tx.clone();
-            thread::spawn(move || client_simulation(id, n, l, xi, &pk_tx, &data_tx))
+            thread::spawn(move || client_simulation(id, n, label, xi, &pk_tx, &data_tx))
         })
         .collect();
 
@@ -88,13 +87,13 @@ fn test_dsum() -> Result<()> {
     let message = vec![vec![Scalar::from_raw([rand::random(); 4]); n_contrib]; n_clients];
 
     // label
-    let l = rand::random(); // TODO: use a timestamp
+    let label = rand::random(); // TODO: use a timestamp
 
     // compute the solution `Sum(x_ij)`
     let s: Scalar = message.iter().map(|xi| xi.iter().sum::<Scalar>()).sum();
 
     // compare it with the solution computed with the MCFE algorithm
-    for res in simulation(&message, l)?.iter() {
+    for res in simulation(&message, label)?.iter() {
         eyre::ensure!(
             s == *res,
             "Error while computing the DSum: incorrect result!\n

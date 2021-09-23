@@ -26,14 +26,14 @@ pub fn dkey_gen_share(
     y: &[Vec<Scalar>],
 ) -> Result<DVec<dsum::CypherText>> {
     // use y as label
-    let mut l = Vec::new();
+    let mut label = Vec::new();
     y.iter().for_each(|yi| {
-        l.append(&mut tools::scalars_to_bytes(yi));
+        label.append(&mut tools::scalars_to_bytes(yi));
     });
     // encode di
     Ok([
-        dsum::encode(&di[0], ski, pki, pk, &l),
-        dsum::encode(&di[1], ski, pki, pk, &l),
+        dsum::encode(&di[0], ski, pki, pk, &label),
+        dsum::encode(&di[1], ski, pki, pk, &label),
     ])
 }
 

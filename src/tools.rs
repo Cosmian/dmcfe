@@ -73,14 +73,14 @@ pub(crate) fn hash_to_scalar(
     tmin: &G1Projective,
     tmax: &G1Projective,
     tmul: &G1Projective,
-    l: &[u8],
+    label: &[u8],
 ) -> Scalar {
     let mut m = [0; 64];
     let mut hasher = Sha512::new();
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmin)));
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmax)));
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmul)));
-    hasher.update(l);
+    hasher.update(label);
     hasher
         .finalize()
         .as_slice()

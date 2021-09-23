@@ -2,6 +2,8 @@
 
 mod bus;
 
+use bus::{Bus, BusTx};
+
 use bls12_381::{G1Projective, Scalar};
 use dmcfe::{dsum, ipdmcfe, ipmcfe};
 use eyre::Result;
@@ -15,10 +17,10 @@ use std::time::SystemTime;
 /// - `dsum_ci`:    DSum cyphertext bus channel
 struct SimuBus {
     n: usize,
-    pk: bus::Bus<dsum::PublicKey>,
-    ipdk: bus::Bus<Scalar>,
-    dsum_ci: bus::Bus<ipdmcfe::DVec<dsum::CypherText>>,
-    mcfe_ci: bus::Bus<Vec<ipmcfe::CypherText>>,
+    pk: Bus<dsum::PublicKey>,
+    ipdk: Bus<Scalar>,
+    dsum_ci: Bus<ipdmcfe::DVec<dsum::CypherText>>,
+    mcfe_ci: Bus<Vec<ipmcfe::CypherText>>,
 }
 
 impl SimuBus {
@@ -27,10 +29,10 @@ impl SimuBus {
     fn new(n: usize) -> Self {
         SimuBus {
             n,
-            pk: bus::Bus::<dsum::PublicKey>::open(n),
-            ipdk: bus::Bus::<Scalar>::open(n),
-            dsum_ci: bus::Bus::<ipdmcfe::DVec<dsum::CypherText>>::open(n),
-            mcfe_ci: bus::Bus::<Vec<ipmcfe::CypherText>>::open(n),
+            pk: Bus::<dsum::PublicKey>::open(n),
+            ipdk: Bus::<Scalar>::open(n),
+            dsum_ci: Bus::<ipdmcfe::DVec<dsum::CypherText>>::open(n),
+            mcfe_ci: Bus::<Vec<ipmcfe::CypherText>>::open(n),
         }
     }
 
@@ -61,13 +63,13 @@ impl SimuBus {
 #[derive(Clone)]
 struct SimuTx {
     n: usize,
-    pk: bus::BusTx<dsum::PublicKey>,
-    ipdk: bus::BusTx<Scalar>,
-    dsum_ci: bus::BusTx<ipdmcfe::DVec<dsum::CypherText>>,
-    mcfe_ci: bus::BusTx<Vec<ipmcfe::CypherText>>,
+    pk: BusTx<dsum::PublicKey>,
+    ipdk: BusTx<Scalar>,
+    dsum_ci: BusTx<ipdmcfe::DVec<dsum::CypherText>>,
+    mcfe_ci: BusTx<Vec<ipmcfe::CypherText>>,
 }
 
-/// Get the timestamp as a label
+/// Get the label as a timestamp
 fn get_label_as_timestamp() -> Result<Vec<u8>> {
     // the label is typically a timestamp
     // it allows to encrypt data periodically
@@ -101,10 +103,6 @@ fn setup(n: usize, id: usize, y: &[Vec<Scalar>], tx: &SimuTx) -> Result<ipmcfe::
     let ci = ipdmcfe::dkey_gen_share(dki.di, &ski, &pki, &pk, y)?;
     bus::unicast(&tx.dsum_ci, n, ci)?;
 
-    //let ip_dk = bus::wait_n(&tx.ipdk, n, id)?;
-    //let c = bus::wait_n(&tx.dsum_ci, n, id)?;
-    //let dk = ipdmcfe::key_comb(y, &c, ip_dk)?;
-
     Ok(eki)
 }
 
@@ -131,7 +129,7 @@ fn client_simulation(
 }
 
 /// Receive cyphered contributions from other clients, along with partial decryption keys.
-/// It builds the decryption key and use it do compute and returns `G*<x,y>`.
+/// It builds the decryption key and use it to compute and return `G*<x,y>`.
 fn decrypt_simulation(y: &[Vec<Scalar>], tx: &SimuTx) -> Result<G1Projective> {
     // Build the decryption key
     let dk_handle = {

@@ -13,14 +13,14 @@ pub type KeyPair = (PrivateKey, PublicKey);
 /// - `ski`:    some client secret key
 /// - `pki`:    some client public key
 /// - `pkj`:    some other client public key
-fn h(l: &[u8], ski: &Scalar, pki: &G1Projective, pkj: &G1Projective) -> Scalar {
+fn h(label: &[u8], ski: &Scalar, pki: &G1Projective, pkj: &G1Projective) -> Scalar {
     let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
 
     match pkj_hash.cmp(&pki_hash) {
-        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(pkj, pki, &(pkj * ski), l)),
+        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(pkj, pki, &(pkj * ski), label)),
         Ordering::Equal => Scalar::zero(),
-        Ordering::Greater => tools::hash_to_scalar(pki, pkj, &(pkj * ski), l),
+        Ordering::Greater => tools::hash_to_scalar(pki, pkj, &(pkj * ski), label),
     }
 }
 
@@ -40,10 +40,12 @@ pub fn encode(
     x: &Scalar,
     ski: &PrivateKey,
     pki: &PublicKey,
-    pk: &[PublicKey],
-    l: &[u8],
+    pk_list: &[PublicKey],
+    label: &[u8],
 ) -> CypherText {
-    pk.iter().fold(*x, |acc, pkj| acc + h(l, ski, pki, pkj))
+    pk_list
+        .iter()
+        .fold(*x, |acc, pkj| acc + h(label, ski, pki, pkj))
 }
 
 /// Decrypt the given data.

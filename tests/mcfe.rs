@@ -31,11 +31,11 @@ fn encrypt_simulation(
     eki: &ipmcfe::EncryptionKey,
     xi: &[Scalar],
     yi: &[Scalar],
-    l: usize,
+    label: usize,
     tx: mpsc::Sender<Contribution>,
 ) -> Result<()> {
     tx.send(Contribution {
-        cx: ipmcfe::encrypt(eki, xi, &l.to_be_bytes())?,
+        cx: ipmcfe::encrypt(eki, xi, &label.to_be_bytes())?,
         key: ipmcfe::dkey_gen(eki, yi)?,
     })?;
     Ok(())
@@ -46,7 +46,7 @@ fn encrypt_simulation(
 fn decrypt_simulation(
     rx: mpsc::Receiver<Contribution>,
     n: usize,
-    l: usize,
+    label: usize,
 ) -> Result<G1Projective> {
     let mut C: Vec<Vec<ipmcfe::CypherText>> = Vec::new();
     let mut keys: Vec<ipmcfe::PartialDecryptionKey> = Vec::new();
@@ -59,7 +59,7 @@ fn decrypt_simulation(
     // Generate the decryption key
     let dk = ipmcfe::key_comb(&keys)?;
 
-    Ok(ipmcfe::decrypt(&C, &dk, &l.to_be_bytes()))
+    Ok(ipmcfe::decrypt(&C, &dk, &label.to_be_bytes()))
 }
 
 /// Simulate a complete MCFE encryption and decryption process. The encryption
@@ -71,7 +71,7 @@ fn decrypt_simulation(
 /// - `y`:  the vector associated with the decryption function
 /// - `l`:  the label
 /// It returns the result of the MCFE in G1.
-fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projective> {
+fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: usize) -> Result<G1Projective> {
     // Copy vectors to gain ownership
     let X: Vec<Vec<Scalar>> = x.to_vec();
     let Y: Vec<Vec<Scalar>> = y.to_vec();
@@ -97,7 +97,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
     // Launch the decryption client.
     // This client will wait for contributions from the other clients
     // then compute the solution using the MCFE algorithm
-    let res = thread::spawn(move || decrypt_simulation(rx, n, l));
+    let res = thread::spawn(move || decrypt_simulation(rx, n, label));
 
     // Launch the encryption clients.
     // These clients will compute the cyphertexts of their contributions
@@ -106,7 +106,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], l: usize) -> Result<G1Projec
     for i in 0..X.len() {
         let (eki, xi, yi, tx) = (ek[i].clone(), X[i].clone(), Y[i].clone(), tx.clone());
         children.push(thread::spawn(move || {
-            encrypt_simulation(&eki, &xi, &yi, l, tx)
+            encrypt_simulation(&eki, &xi, &yi, label, tx)
         }));
     }
 
@@ -129,7 +129,7 @@ fn test_mcfe() -> Result<()> {
     // decryption function
     let y = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // label
-    let l = rand::random(); // TODO: use a timestamp
+    let label = rand::random(); // TODO: use a timestamp
 
     // compute the solution `G * <x,y>`
     // stay in G1 to avoid computing the discrete log
@@ -144,7 +144,7 @@ fn test_mcfe() -> Result<()> {
             })
             .sum::<Scalar>();
 
-    let res = simulation(&x, &y, l)?;
+    let res = simulation(&x, &y, label)?;
     // compare it with the solution computed with the MCFE algorithm
     eyre::ensure!(
         s == res,

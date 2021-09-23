@@ -11,17 +11,17 @@ use rand::Rng;
 #[test]
 fn test_ipfe() -> Result<()> {
     // size of the problem
-    let l: usize = rand::thread_rng().gen_range(10..100);
+    let label: usize = rand::thread_rng().gen_range(10..100);
     // generate random input vectors
-    let x: Vec<Scalar> = (0..l)
+    let x: Vec<Scalar> = (0..label)
         .map(|_| Scalar::from_raw([rand::thread_rng().gen_range(0..10 ^ 6), 0, 0, 0]))
         .collect();
-    let y: Vec<Scalar> = (0..l)
+    let y: Vec<Scalar> = (0..label)
         .map(|_| Scalar::from_raw([rand::thread_rng().gen_range(0..10 ^ 6), 0, 0, 0]))
         .collect();
 
     // Generate IPFE keys
-    let (msk, mpk) = ipfe::setup(l);
+    let (msk, mpk) = ipfe::setup(label);
     let sky = ipfe::key_der(&msk, &y)?;
 
     // compute the text using the IPFE algorithm
