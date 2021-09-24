@@ -101,7 +101,7 @@ pub(crate) fn random_mat_gen(m: usize, n: usize) -> Vec<Vec<Scalar>> {
 
 /// Transpose the given matrix,
 /// - `v`:  matrix to transpose
-pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
+pub(crate) fn transpose<T: Clone>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
     eyre::ensure!(!v.is_empty(), "0 has no inverse!");
     let len = v[0].len();
     let mut iters = v.iter().map(|n| n.iter()).collect::<Vec<_>>();
@@ -109,7 +109,11 @@ pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
         .map(|_| {
             iters
                 .iter_mut()
-                .map(|n| *(n.next().expect("Error while accessing elements of v!")))
+                .map(|n| {
+                    n.next()
+                        .expect("Error while accessing elements of v!")
+                        .clone()
+                })
                 .collect::<Vec<T>>()
         })
         .collect())

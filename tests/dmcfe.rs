@@ -5,7 +5,7 @@ mod bus;
 use bus::{Bus, BusTx};
 
 use bls12_381::{G1Projective, Scalar};
-use dmcfe::{dsum, ipdmcfe, ipmcfe};
+use dmcfe::{dsum, ipdmcfe, ipfe, ipmcfe};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
@@ -18,8 +18,8 @@ use std::time::SystemTime;
 struct SimuBus {
     n: usize,
     pk: Bus<dsum::PublicKey>,
-    ipdk: Bus<Scalar>,
-    dsum_ci: Bus<ipdmcfe::DVec<dsum::CypherText>>,
+    ipdk: Bus<ipfe::DecryptionKey>,
+    dsum_ci: Bus<ipmcfe::DVec<dsum::CypherText>>,
     mcfe_ci: Bus<Vec<ipmcfe::CypherText>>,
 }
 
@@ -30,8 +30,8 @@ impl SimuBus {
         SimuBus {
             n,
             pk: Bus::<dsum::PublicKey>::open(n),
-            ipdk: Bus::<Scalar>::open(n),
-            dsum_ci: Bus::<ipdmcfe::DVec<dsum::CypherText>>::open(n),
+            ipdk: Bus::<ipfe::DecryptionKey>::open(n),
+            dsum_ci: Bus::<ipmcfe::DVec<dsum::CypherText>>::open(n),
             mcfe_ci: Bus::<Vec<ipmcfe::CypherText>>::open(n),
         }
     }
@@ -64,12 +64,12 @@ impl SimuBus {
 struct SimuTx {
     n: usize,
     pk: BusTx<dsum::PublicKey>,
-    ipdk: BusTx<Scalar>,
-    dsum_ci: BusTx<ipdmcfe::DVec<dsum::CypherText>>,
+    ipdk: BusTx<ipfe::DecryptionKey>,
+    dsum_ci: BusTx<ipmcfe::DVec<dsum::CypherText>>,
     mcfe_ci: BusTx<Vec<ipmcfe::CypherText>>,
 }
 
-/// Get the label as a timestamp
+/// Get the timestamp as a label
 fn get_label_as_timestamp() -> Result<Vec<u8>> {
     // the label is typically a timestamp
     // it allows to encrypt data periodically
@@ -89,7 +89,7 @@ fn get_label_as_timestamp() -> Result<Vec<u8>> {
 /// - `tx`: bus transmission channels
 fn setup(n: usize, id: usize, y: &[Vec<Scalar>], tx: &SimuTx) -> Result<ipmcfe::EncryptionKey> {
     println!("Setup ({}/{})", id, n - 1);
-    let (eki, (ski, pki)) = ipdmcfe::setup(y[id].len());
+    let (eki, dsum::KeyPair(ski, pki)) = ipdmcfe::setup(y[id].len());
     let dki = ipdmcfe::dkey_gen(&eki, &y[id])?;
 
     // share IPFE decryption key with the receiver
@@ -100,7 +100,7 @@ fn setup(n: usize, id: usize, y: &[Vec<Scalar>], tx: &SimuTx) -> Result<ipmcfe::
     let pk = bus::wait_n(&tx.pk, n, id)?;
 
     // share the MCFE partial decryption key with the receiver using the DSum
-    let ci = ipdmcfe::dkey_gen_share(dki.di, &ski, &pki, &pk, y)?;
+    let ci = ipdmcfe::dkey_gen_share(dki.di, &ski, &pk, y)?;
     bus::unicast(&tx.dsum_ci, n, ci)?;
 
     Ok(eki)
