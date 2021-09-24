@@ -27,14 +27,14 @@ fn hash(m: u128) -> G1Projective {
     tools::smul_in_g1(&Scalar::from_bytes(&res).unwrap())
 }
 
-pub fn share(ek_i: Scalar, l: u128) -> G1Projective {
-    hash(l) * ek_i
+pub fn share(ek_i: Scalar, label: u128) -> G1Projective {
+    hash(label) * ek_i
 }
 
-pub fn encaps(T: G2Projective, l: u128) -> (G2Projective, Gt) {
+pub fn encaps(T: G2Projective, label: u128) -> (G2Projective, Gt) {
     let r = tools::random_scalar();
     let C = tools::smul_in_g2(&r);
-    let K = pairing(&G1Affine::from(hash(l)), &G2Affine::from(T * r));
+    let K = pairing(&G1Affine::from(hash(label)), &G2Affine::from(T * r));
     (C, K)
 }
 

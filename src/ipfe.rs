@@ -22,7 +22,7 @@ pub struct CypherText {
 /// This algorithm implements the `Setup` function of the IPFE scheme.
 /// It returns `(msk, mpk)`, the master secret an public keys.
 ///
-/// - l   : dimension of the vector space
+/// - label   : dimension of the vector space
 pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
     let msk = (0..l).map(|_| tools::random_scalar()).collect::<Vec<_>>();
     let MPK = (0..l).map(|i| tools::smul_in_g1(&msk[i])).collect();

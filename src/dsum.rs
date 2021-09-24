@@ -1,5 +1,6 @@
 use crate::tools;
-use bls12_381::{G1Projective, Scalar};
+use bls12_381::{G1Affine, G1Projective, Scalar};
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 
 pub type CypherText = Scalar;
@@ -7,18 +8,19 @@ pub type PrivateKey = Scalar;
 pub type PublicKey = G1Projective;
 pub type KeyPair = (PrivateKey, PublicKey);
 
-fn h(l: &[u8], ti: (usize, &Scalar), tj: (usize, &G1Projective)) -> Scalar {
-    let (i, sk) = ti;
-    let (j, pk) = tj;
-    match j.cmp(&i) {
-        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(
-            pk,
-            &tools::smul_in_g1(sk),
-            &(pk * sk),
-            l,
-        )),
+/// Compute the `h_(i, j, l)` function of the DSum.
+/// - `l`:      label
+/// - `ski`:    some client secret key
+/// - `pki`:    some client public key
+/// - `pkj`:    some other client public key
+fn h(label: &[u8], ski: &Scalar, pki: &G1Projective, pkj: &G1Projective) -> Scalar {
+    let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
+    let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
+
+    match pkj_hash.cmp(&pki_hash) {
+        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(pkj, pki, &(pkj * ski), label)),
         Ordering::Equal => Scalar::zero(),
-        Ordering::Greater => tools::hash_to_scalar(&tools::smul_in_g1(sk), pk, &(pk * sk), l),
+        Ordering::Greater => tools::hash_to_scalar(pki, pkj, &(pkj * ski), label),
     }
 }
 
@@ -29,20 +31,21 @@ pub fn client_setup() -> KeyPair {
 }
 
 /// Encrypt the given data using the given keys and label.
-/// - `i`:      client id
 /// - `x`:      data to encrypt
 /// - `ski`:    client private key
-/// - `pk`:     list of `(client, id)`, where `client` is the client `id` and `pki` is his public key
+/// - `pki`:    client public key
+/// - `pk`:     list of all public keys
 /// - `l`:      label
 pub fn encode(
-    i: usize,
     x: &Scalar,
     ski: &PrivateKey,
-    pk: &[(usize, PublicKey)],
-    l: &[u8],
+    pki: &PublicKey,
+    pk_list: &[PublicKey],
+    label: &[u8],
 ) -> CypherText {
-    pk.iter()
-        .fold(*x, |acc, (j, pkj)| acc + h(l, (i, ski), (*j, pkj)))
+    pk_list
+        .iter()
+        .fold(*x, |acc, pkj| acc + h(label, ski, pki, pkj))
 }
 
 /// Decrypt the given data.

@@ -59,31 +59,28 @@ pub(crate) fn get_inverse(P: &G1Projective) -> G1Projective {
 
 /// Returns the hash of the given `usize` in `G1`
 /// - `m`:  given `usize`
-pub(crate) fn hash_to_curve(m: usize) -> G1Projective {
-    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(m.to_be_bytes(), DST)
+pub(crate) fn hash_to_curve(m: &[u8]) -> G1Projective {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::hash_to_curve(m, DST)
 }
 
 /// Returns the hash of the given `usize` in `G1xG1`
 /// - `m`:  given `usize`
-pub(crate) fn double_hash_to_curve(m: usize) -> (G1Projective, G1Projective) {
-    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(
-        m.to_be_bytes(),
-        DST,
-    )
+pub(crate) fn double_hash_to_curve(m: &[u8]) -> (G1Projective, G1Projective) {
+    <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(m, DST)
 }
 
 pub(crate) fn hash_to_scalar(
     tmin: &G1Projective,
     tmax: &G1Projective,
     tmul: &G1Projective,
-    l: &[u8],
+    label: &[u8],
 ) -> Scalar {
     let mut m = [0; 64];
     let mut hasher = Sha512::new();
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmin)));
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmax)));
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmul)));
-    hasher.update(l);
+    hasher.update(label);
     hasher
         .finalize()
         .as_slice()
