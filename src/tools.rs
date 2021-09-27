@@ -21,14 +21,6 @@ pub(crate) fn random_scalar() -> Scalar {
     Scalar::from_raw([rand::random(); RAW_SCALAR_SIZE])
 }
 
-pub(crate) fn scalars_to_bytes(x: &[Scalar]) -> Vec<u8> {
-    let mut res = Vec::new();
-    x.iter().for_each(|xi| {
-        res.append(&mut xi.to_bytes().to_vec());
-    });
-    res
-}
-
 /// Hide a given scalar in G1 based on the CDH assumption.
 /// - `a`:    scalar
 pub(crate) fn smul_in_g1(a: &Scalar) -> G1Projective {
@@ -101,7 +93,7 @@ pub(crate) fn random_mat_gen(m: usize, n: usize) -> Vec<Vec<Scalar>> {
 
 /// Transpose the given matrix,
 /// - `v`:  matrix to transpose
-pub(crate) fn transpose<T: Clone>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
+pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
     eyre::ensure!(!v.is_empty(), "0 has no inverse!");
     let len = v[0].len();
     let mut iters = v.iter().map(|n| n.iter()).collect::<Vec<_>>();
@@ -109,11 +101,7 @@ pub(crate) fn transpose<T: Clone>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
         .map(|_| {
             iters
                 .iter_mut()
-                .map(|n| {
-                    n.next()
-                        .expect("Error while accessing elements of v!")
-                        .clone()
-                })
+                .map(|n| *n.next().expect("Error while accessing elements of v!"))
                 .collect::<Vec<T>>()
         })
         .collect())
@@ -139,7 +127,7 @@ pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Pro
         y.len(),
     );
     Ok(x.iter()
-        .map(|xi| xi.iter().zip(y.iter()).map(|(xij, yj)| yj * xij).sum())
+        .map(|xi| xi.iter().zip(y.iter()).map(|(xij, yj)| yj * xij).sum::<G1Projective>())
         .collect())
 }
 

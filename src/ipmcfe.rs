@@ -1,4 +1,4 @@
-use crate::{ipfe, tools};
+use crate::{ipfe, label::Label, tools};
 use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
@@ -10,6 +10,7 @@ pub struct CypherText(G1Projective);
 pub struct DVec<T>(pub(crate) T, pub(crate) T);
 
 impl<T: Clone> DVec<T> {
+    /// Convert a DVec into a vector of size 2
     pub fn to_vec(&self) -> Vec<T> {
         vec![self.0.clone(), self.1.clone()]
     }
@@ -58,8 +59,8 @@ pub fn setup(m: usize) -> EncryptionKey {
 /// - `eki`:    client encryption key
 /// - `xi`:     client contribution
 /// - `l`:      label
-pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], label: &[u8]) -> Result<Vec<CypherText>> {
-    let (p1, p2) = tools::double_hash_to_curve(label);
+pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], label: &Label) -> Result<Vec<CypherText>> {
+    let (p1, p2) = tools::double_hash_to_curve(&label.to_bytes());
     let R1 = tools::mat_mul(&eki.s, &[p1, p2])?;
     let ci = xi
         .iter()
@@ -67,7 +68,7 @@ pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], label: &[u8]) -> Result<Vec<C
         .map(|(xij, r)| r + G1Projective::generator() * xij);
 
     // add an IPFE layer to secure the multiple contributions
-    let Ul = tools::hash_to_curve(label);
+    let Ul = tools::hash_to_curve(&label.to_bytes());
     let R2 = eki.msk.iter().map(|&ipfe::PrivateKey(mski)| Ul * mski);
     Ok(ci.zip(R2).map(|(cij, r)| CypherText(r + cij)).collect())
 }
@@ -106,11 +107,20 @@ pub fn key_comb(dki_vec: &[PartialDecryptionKey]) -> Result<DecryptionKey> {
     Ok(DecryptionKey { y, d, ip_dk })
 }
 
+impl<'a> std::iter::FromIterator<&'a CypherText> for Vec<G1Projective> {
+    fn from_iter<T: IntoIterator<Item = &'a CypherText>>(iter: T) -> Self {
+        let mut res = Vec::new();
+        for &c in iter {
+            res.push(c.0);
+        }
+        res
+    }
+}
 /// Decrypt the given cyphertexts of a given label using the decryption key.
 /// - `C`:  the cyphertexts
 /// - `dk`: the decryption key
 /// - `l`:  the label
-pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &[u8]) -> G1Projective {
+pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &Label) -> G1Projective {
     let dl = C
         .iter()
         .zip(dk.y.iter())
@@ -118,8 +128,8 @@ pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &[u8]) -> G1Pro
         .map(|((Ci, yi), ip_dki)| {
             ipfe::decrypt(
                 &ipfe::CypherText {
-                    c0: tools::hash_to_curve(label),
-                    cx: Ci.iter().map(|cij| cij.0).collect(),
+                    c0: tools::hash_to_curve(&label.to_bytes()),
+                    cx: Ci.iter().collect(),
                 },
                 yi,
                 ip_dki,
@@ -127,7 +137,7 @@ pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &[u8]) -> G1Pro
         });
 
     // compute `d^T.[u_l]`
-    let double_Ul = tools::double_hash_to_curve(label);
+    let double_Ul = tools::double_hash_to_curve(&label.to_bytes());
     let d: G1Projective = double_Ul.0 * dk.d.0 + double_Ul.1 * dk.d.1;
 
     dl.sum::<G1Projective>() - d

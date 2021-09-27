@@ -1,4 +1,4 @@
-use crate::{dsum, ipfe, ipmcfe, tools};
+use crate::{dsum, ipfe, ipmcfe, label::Label, tools};
 use bls12_381::Scalar;
 use eyre::Result;
 
@@ -22,10 +22,9 @@ pub fn dkey_gen_share(
     y: &[Vec<Scalar>],
 ) -> Result<ipmcfe::DVec<dsum::CypherText>> {
     // use y as label
-    let mut label = Vec::new();
-    y.iter().for_each(|yi| {
-        label.append(&mut tools::scalars_to_bytes(yi));
-    });
+    let mut label = Label::new()?;
+    y.iter()
+        .for_each(|yi| yi.iter().for_each(|yij| label.aggregate(yij)));
     // encode di
     Ok(ipmcfe::DVec(
         dsum::encode(&di.0, ski, pk, &label),
