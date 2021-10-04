@@ -6,6 +6,14 @@ use eyre::Result;
 #[derive(Clone)]
 pub struct PrivateKey(pub Scalar);
 
+impl std::ops::Deref for PrivateKey {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// IPFE public key type
 #[derive(Clone)]
 pub struct PublicKey(pub G1Projective);
@@ -31,7 +39,7 @@ pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
         .map(|_| PrivateKey(tools::random_scalar()))
         .collect::<Vec<_>>();
     let MPK = (0..l)
-        .map(|i| PublicKey(tools::smul_in_g1(&msk[i].0)))
+        .map(|i| PublicKey(tools::smul_in_g1(&msk[i])))
         .collect();
     (msk, MPK)
 }
@@ -61,7 +69,10 @@ pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
 pub fn key_der(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
     eyre::ensure!(y.len() == msk.len(), "Input function has wrong dimensions!");
     Ok(DecryptionKey(
-        y.iter().zip(msk.iter()).map(|(yi, si)| yi * si.0).sum(),
+        y.iter()
+            .zip(msk.iter())
+            .map(|(yi, PrivateKey(si))| yi * si)
+            .sum(),
     ))
 }
 

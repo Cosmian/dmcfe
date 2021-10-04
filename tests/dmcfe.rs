@@ -69,7 +69,7 @@ struct SimuTx {
     mcfe_ci: BusTx<Vec<ipmcfe::CypherText>>,
 }
 
-/// Get the timestamp as a label
+/// Get the label as a timestamp
 fn get_label_as_timestamp() -> Result<Vec<u8>> {
     // the label is typically a timestamp
     // it allows to encrypt data periodically

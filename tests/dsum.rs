@@ -29,7 +29,7 @@ fn client_simulation(
     //encrypt the data
     let c = xi
         .iter()
-        .map(|xij| -> dsum::CypherText { dsum::encode(xij, &ski, &pk, &label.to_le_bytes()) });
+        .map(|xij| dsum::encode(xij, &ski, &pk, &label.to_le_bytes()));
 
     // share the chiphered data
     for ci in c {
