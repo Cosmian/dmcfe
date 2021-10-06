@@ -3,10 +3,10 @@ use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
 /// MCFE cyphertext type
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct CypherText(G1Projective);
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DVec<T>(pub(crate) T, pub(crate) T);
 
 impl<T: Clone> DVec<T> {

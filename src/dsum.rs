@@ -6,8 +6,10 @@ use std::{
     ops::{Deref, Mul},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct CypherText(Scalar);
+
+#[derive(Clone, Copy)]
 pub struct PrivateKey(Scalar);
 
 impl Deref for PrivateKey {
@@ -18,8 +20,9 @@ impl Deref for PrivateKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PublicKey(G1Projective);
+
 impl Deref for PublicKey {
     type Target = G1Projective;
 
@@ -28,7 +31,7 @@ impl Deref for PublicKey {
     }
 }
 
-impl Mul<&PrivateKey> for PublicKey {
+impl Mul<&PrivateKey> for &PublicKey {
     type Output = G1Projective;
 
     fn mul(self, rhs: &PrivateKey) -> Self::Output {
@@ -36,6 +39,7 @@ impl Mul<&PrivateKey> for PublicKey {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct KeyPair(pub PrivateKey, pub PublicKey);
 
 /// Compute the `h_(i, j, l)` function of the DSum.
@@ -48,14 +52,9 @@ fn h(label: &[u8], ski: &PrivateKey, pkj: &PublicKey) -> Scalar {
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj.0)));
 
     match pkj_hash.cmp(&pki_hash) {
-        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(
-            pkj,
-            &pki,
-            &(pkj.clone() * ski),
-            label,
-        )),
+        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(pkj, &pki, &(pkj * ski), label)),
         Ordering::Equal => Scalar::zero(),
-        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj.clone() * ski), label),
+        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj * ski), label),
     }
 }
 

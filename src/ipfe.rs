@@ -3,7 +3,7 @@ use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
 /// IPFE private key type
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PrivateKey(pub Scalar);
 
 impl std::ops::Deref for PrivateKey {
@@ -15,11 +15,11 @@ impl std::ops::Deref for PrivateKey {
 }
 
 /// IPFE public key type
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct PublicKey(pub G1Projective);
 
 /// IPFE decryption key type
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct DecryptionKey(pub Scalar);
 
 /// IPFE cyphertext structure
