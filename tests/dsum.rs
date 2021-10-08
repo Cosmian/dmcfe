@@ -2,7 +2,7 @@
 
 mod bus;
 
-use bls12_381::{G1Projective, Scalar};
+use bls12_381::Scalar;
 use dmcfe::dsum;
 use eyre::Result;
 use rand::Rng;
@@ -13,11 +13,11 @@ fn client_simulation(
     n: usize,
     label: usize,
     xi: Vec<Scalar>,
-    pk_bus_tx: &bus::BusTx<G1Projective>,
-    data_bus_tx: &bus::BusTx<Scalar>,
+    pk_bus_tx: &bus::BusTx<dsum::PublicKey>,
+    data_bus_tx: &bus::BusTx<dsum::CypherText>,
 ) -> Result<Scalar> {
     // generate key pair
-    let (ski, pki) = dsum::client_setup();
+    let dsum::KeyPair(ski, pki) = dsum::client_setup();
 
     // publish the public key
     bus::broadcast(pk_bus_tx, pki)?;
@@ -29,7 +29,7 @@ fn client_simulation(
     //encrypt the data
     let c = xi
         .iter()
-        .map(|xij| dsum::encode(xij, &ski, &pki, &pk, &label.to_le_bytes()));
+        .map(|xij| dsum::encode(xij, &ski, &pk, &label.to_le_bytes()));
 
     // share the chiphered data
     for ci in c {

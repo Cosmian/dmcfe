@@ -3,13 +3,24 @@ use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
 /// IPFE private key type
-pub type PrivateKey = Scalar;
+#[derive(Clone, Copy)]
+pub struct PrivateKey(pub Scalar);
+
+impl std::ops::Deref for PrivateKey {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// IPFE public key type
-pub type PublicKey = G1Projective;
+#[derive(Clone, Copy)]
+pub struct PublicKey(pub G1Projective);
 
 /// IPFE decryption key type
-pub type DecryptionKey = Scalar;
+#[derive(Clone, Copy)]
+pub struct DecryptionKey(pub Scalar);
 
 /// IPFE cyphertext structure
 /// - `c0`: `g^r`
@@ -24,8 +35,12 @@ pub struct CypherText {
 ///
 /// - label   : dimension of the vector space
 pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
-    let msk = (0..l).map(|_| tools::random_scalar()).collect::<Vec<_>>();
-    let MPK = (0..l).map(|i| tools::smul_in_g1(&msk[i])).collect();
+    let msk = (0..l)
+        .map(|_| PrivateKey(tools::random_scalar()))
+        .collect::<Vec<_>>();
+    let MPK = (0..l)
+        .map(|i| PublicKey(tools::smul_in_g1(&msk[i])))
+        .collect();
     (msk, MPK)
 }
 
@@ -41,7 +56,7 @@ pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
     let cx = x
         .iter()
         .zip(MPK.iter())
-        .map(|(&xi, &hi)| tools::smul_in_g1(&xi) + (hi * r))
+        .map(|(&xi, &PublicKey(hi))| tools::smul_in_g1(&xi) + (hi * r))
         .collect();
     Ok(CypherText { c0, cx })
 }
@@ -53,7 +68,12 @@ pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
 /// - `y`   : the vector associated to the decryptied function
 pub fn key_der(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
     eyre::ensure!(y.len() == msk.len(), "Input function has wrong dimensions!");
-    Ok(y.iter().zip(msk.iter()).map(|(yi, si)| yi * si).sum())
+    Ok(DecryptionKey(
+        y.iter()
+            .zip(msk.iter())
+            .map(|(yi, PrivateKey(si))| yi * si)
+            .sum(),
+    ))
 }
 
 /// This algorithm implements the `Decrypt` function of the IPFE scheme.
@@ -68,5 +88,5 @@ pub fn decrypt(C: &CypherText, y: &[Scalar], sky: &DecryptionKey) -> G1Projectiv
         .zip(y.iter())
         .map(|(ci, yi)| ci * yi)
         .sum::<G1Projective>()
-        - C.c0 * sky
+        - C.c0 * sky.0
 }
