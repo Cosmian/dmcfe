@@ -5,7 +5,8 @@ use bls12_381::{
     G1Affine, G1Projective, G2Projective, Scalar,
 };
 use eyre::Result;
-use sha2::{Digest, Sha512};
+use sha2::{Digest, Sha256, Sha512};
+use std::cmp::Ordering;
 
 const RAW_SCALAR_SIZE: usize = 4;
 const DST: &[u8] = b"simple_DST";
@@ -57,8 +58,14 @@ pub(crate) fn hash_to_curve(m: &[u8]) -> G1Projective {
 
 /// Returns the hash of the given `usize` in `G1xG1`
 /// - `m`:  given `usize`
-pub(crate) fn double_hash_to_curve(m: &[u8]) -> (G1Projective, G1Projective) {
+pub(crate) fn double_hash_to_curve_in_g1(m: &[u8]) -> (G1Projective, G1Projective) {
     <G1Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(m, DST)
+}
+
+/// Returns the hash of the given `usize` in `G1xG1`
+/// - `m`:  given `usize`
+pub(crate) fn double_hash_to_curve_in_g2(m: &[u8]) -> (G2Projective, G2Projective) {
+    <G2Projective as HashToCurve<ExpandMsgXmd<sha2::Sha256>>>::double_hash_to_curve(m, DST)
 }
 
 pub(crate) fn hash_to_scalar(
@@ -127,7 +134,12 @@ pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Pro
         y.len(),
     );
     Ok(x.iter()
-        .map(|xi| xi.iter().zip(y.iter()).map(|(xij, yj)| yj * xij).sum::<G1Projective>())
+        .map(|xi| {
+            xi.iter()
+                .zip(y.iter())
+                .map(|(xij, yj)| yj * xij)
+                .sum::<G1Projective>()
+        })
         .collect())
 }
 
@@ -191,6 +203,22 @@ pub(crate) fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
         }
     }
     acc
+}
+
+/// Compute the `h_(i, j, l)` function of the DSum.
+/// - `l`:      label
+/// - `ski`:    some client secret key
+/// - `pkj`:    some other client public key
+pub(crate) fn h(label: &[u8], ski: &Scalar, pkj: &G1Projective) -> Scalar {
+    let pki = smul_in_g1(&ski);
+    let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
+    let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
+
+    match pkj_hash.cmp(&pki_hash) {
+        Ordering::Less => Scalar::neg(&hash_to_scalar(pkj, &pki, &(pkj * ski), label)),
+        Ordering::Equal => Scalar::zero(),
+        Ordering::Greater => hash_to_scalar(&pki, pkj, &(pkj * ski), label),
+    }
 }
 
 #[cfg(test)]

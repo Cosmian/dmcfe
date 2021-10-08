@@ -28,7 +28,7 @@ struct Contribution {
 /// - compute the partial decryption key;
 /// - send the cyphertexts and the partial decryption key to the decryption client
 fn encrypt_simulation(
-    eki: &ipmcfe::EncryptionKey,
+    eki: &ipmcfe::PrivateKey,
     xi: &[Scalar],
     yi: &[Scalar],
     label: &Label,
@@ -89,7 +89,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: &Label) -> Result<G1P
     let m = X.first().unwrap().len();
 
     // generate encryption keys
-    let ek: Vec<ipmcfe::EncryptionKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
+    let ek: Vec<ipmcfe::PrivateKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
 
     // Create the communication channels
     let (tx, rx): (mpsc::Sender<Contribution>, mpsc::Receiver<Contribution>) = mpsc::channel();
