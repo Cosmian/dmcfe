@@ -5,11 +5,10 @@ mod bus;
 use bus::{Bus, BusTx};
 
 use bls12_381::{G1Projective, Scalar};
-use dmcfe::{dsum, ipdmcfe, ipfe, ipmcfe};
+use dmcfe::{dsum, ipdmcfe, ipfe, ipmcfe, label::Label};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
-use std::time::SystemTime;
 
 /// structure containing all the buses used for the simulation
 /// - `pk`:         public key bus channel
@@ -69,18 +68,6 @@ struct SimuTx {
     mcfe_ci: BusTx<Vec<ipmcfe::CypherText>>,
 }
 
-/// Get the label as a timestamp
-fn get_label_as_timestamp() -> Result<Vec<u8>> {
-    // the label is typically a timestamp
-    // it allows to encrypt data periodically
-    Ok((SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_secs()
-        / 60)
-        .to_be_bytes()
-        .to_vec())
-}
-
 /// Setup step of the DMCFE algorithm. It has a high communication cost, but it
 /// is executed only once.
 /// - `n`:  number of clients
@@ -123,7 +110,7 @@ fn client_simulation(
     // Encryption step
     // Lower communication cost
     // Can be executed many times for the given function, with different data
-    let Ci = ipdmcfe::encrypt(&eki, xi, &get_label_as_timestamp()?)?;
+    let Ci = ipdmcfe::encrypt(&eki, xi, &Label::new()?)?;
     // send the cyphered contributions to the receiver
     bus::unicast(&bus.mcfe_ci, n, Ci)
 }
@@ -157,7 +144,7 @@ fn decrypt_simulation(y: &[Vec<Scalar>], tx: &SimuTx) -> Result<G1Projective> {
         &dk_handle
             .join()
             .map_err(|err| eyre::eyre!("Error while getting the decryption key: {:?}", err))??,
-        &get_label_as_timestamp()?,
+        &Label::new()?,
     ))
 }
 

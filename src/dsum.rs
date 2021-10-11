@@ -1,4 +1,4 @@
-use crate::tools;
+use crate::{label::Label, tools};
 use bls12_381::{G1Affine, G1Projective, Scalar};
 use sha2::{Digest, Sha256};
 use std::{
@@ -46,15 +46,20 @@ pub struct KeyPair(pub PrivateKey, pub PublicKey);
 /// - `l`:      label
 /// - `ski`:    some client secret key
 /// - `pkj`:    some other client public key
-fn h(label: &[u8], ski: &PrivateKey, pkj: &PublicKey) -> Scalar {
-    let pki = PublicKey(tools::smul_in_g1(&ski));
+fn h(label: &Label, ski: &PrivateKey, pkj: &PublicKey) -> Scalar {
+    let pki = PublicKey(tools::smul_in_g1(ski));
     let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki.0)));
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj.0)));
 
     match pkj_hash.cmp(&pki_hash) {
-        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(pkj, &pki, &(pkj * ski), label)),
+        Ordering::Less => Scalar::neg(&tools::hash_to_scalar(
+            pkj,
+            &pki,
+            &(pkj * ski),
+            label.as_ref(),
+        )),
         Ordering::Equal => Scalar::zero(),
-        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj * ski), label),
+        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj * ski), label.as_ref()),
     }
 }
 
@@ -69,7 +74,7 @@ pub fn client_setup() -> KeyPair {
 /// - `ski`:    client private key
 /// - `pk`:     list of all public keys
 /// - `l`:      label
-pub fn encode(x: &Scalar, ski: &PrivateKey, pk_list: &[PublicKey], label: &[u8]) -> CypherText {
+pub fn encode(x: &Scalar, ski: &PrivateKey, pk_list: &[PublicKey], label: &Label) -> CypherText {
     CypherText(pk_list.iter().fold(*x, |acc, pkj| acc + h(label, ski, pkj)))
 }
 

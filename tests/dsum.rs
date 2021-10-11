@@ -3,7 +3,7 @@
 mod bus;
 
 use bls12_381::Scalar;
-use dmcfe::dsum;
+use dmcfe::{dsum, label::Label};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
@@ -11,7 +11,7 @@ use std::thread;
 fn client_simulation(
     id: usize,
     n: usize,
-    label: usize,
+    label: &Label,
     xi: Vec<Scalar>,
     pk_bus_tx: &bus::BusTx<dsum::PublicKey>,
     data_bus_tx: &bus::BusTx<dsum::CypherText>,
@@ -27,9 +27,7 @@ fn client_simulation(
     let pk = bus::wait_n(pk_bus_tx, n, id)?;
 
     //encrypt the data
-    let c = xi
-        .iter()
-        .map(|xij| dsum::encode(xij, &ski, &pk, &label.to_le_bytes()));
+    let c = xi.iter().map(|xij| dsum::encode(xij, &ski, &pk, label));
 
     // share the chiphered data
     for ci in c {
@@ -42,7 +40,7 @@ fn client_simulation(
     Ok(dsum::combine(&c))
 }
 
-fn simulation(x: &[Vec<Scalar>], label: usize) -> Result<Vec<Scalar>> {
+fn simulation(x: &[Vec<Scalar>], label: &Label) -> Result<Vec<Scalar>> {
     eyre::ensure!(!x.is_empty(), "The given text vector should not be empty!");
 
     // Copy vectors to gain ownership
@@ -62,7 +60,8 @@ fn simulation(x: &[Vec<Scalar>], label: usize) -> Result<Vec<Scalar>> {
             let xi = xi.clone();
             let data_tx = data_bus.tx.clone();
             let pk_tx = pk_bus.tx.clone();
-            thread::spawn(move || client_simulation(id, n, label, xi, &pk_tx, &data_tx))
+            let label = label.clone();
+            thread::spawn(move || client_simulation(id, n, &label, xi, &pk_tx, &data_tx))
         })
         .collect();
 
@@ -87,13 +86,13 @@ fn test_dsum() -> Result<()> {
     let message = vec![vec![Scalar::from_raw([rand::random(); 4]); n_contrib]; n_clients];
 
     // label
-    let label = rand::random(); // TODO: use a timestamp
+    let label = Label::new()?;
 
     // compute the solution `Sum(x_ij)`
     let s: Scalar = message.iter().map(|xi| xi.iter().sum::<Scalar>()).sum();
 
     // compare it with the solution computed with the MCFE algorithm
-    for res in simulation(&message, label)?.iter() {
+    for res in simulation(&message, &label)?.iter() {
         eyre::ensure!(
             s == *res,
             "Error while computing the DSum: incorrect result!\n
