@@ -60,7 +60,7 @@ pub fn setup(m: usize) -> EncryptionKey {
 /// - `xi`:     client contribution
 /// - `l`:      label
 pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], label: &Label) -> Result<Vec<CypherText>> {
-    let (p1, p2) = tools::double_hash_to_curve(&label.to_bytes());
+    let (p1, p2) = tools::double_hash_to_curve(label.as_ref());
     let R1 = tools::mat_mul(&eki.s, &[p1, p2])?;
     let ci = xi
         .iter()
@@ -68,7 +68,7 @@ pub fn encrypt(eki: &EncryptionKey, xi: &[Scalar], label: &Label) -> Result<Vec<
         .map(|(xij, r)| r + G1Projective::generator() * xij);
 
     // add an IPFE layer to secure the multiple contributions
-    let Ul = tools::hash_to_curve(&label.to_bytes());
+    let Ul = tools::hash_to_curve(label.as_ref());
     let R2 = eki.msk.iter().map(|&ipfe::PrivateKey(mski)| Ul * mski);
     Ok(ci.zip(R2).map(|(cij, r)| CypherText(r + cij)).collect())
 }
@@ -109,11 +109,7 @@ pub fn key_comb(dki_vec: &[PartialDecryptionKey]) -> Result<DecryptionKey> {
 
 impl<'a> std::iter::FromIterator<&'a CypherText> for Vec<G1Projective> {
     fn from_iter<T: IntoIterator<Item = &'a CypherText>>(iter: T) -> Self {
-        let mut res = Vec::new();
-        for &c in iter {
-            res.push(c.0);
-        }
-        res
+        iter.into_iter().map(|&CypherText(ci)| ci).collect()
     }
 }
 /// Decrypt the given cyphertexts of a given label using the decryption key.
@@ -128,7 +124,7 @@ pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &Label) -> G1Pr
         .map(|((Ci, yi), ip_dki)| {
             ipfe::decrypt(
                 &ipfe::CypherText {
-                    c0: tools::hash_to_curve(&label.to_bytes()),
+                    c0: tools::hash_to_curve(label.as_ref()),
                     cx: Ci.iter().collect(),
                 },
                 yi,
@@ -137,7 +133,7 @@ pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &Label) -> G1Pr
         });
 
     // compute `d^T.[u_l]`
-    let double_Ul = tools::double_hash_to_curve(&label.to_bytes());
+    let double_Ul = tools::double_hash_to_curve(label.as_ref());
     let d: G1Projective = double_Ul.0 * dk.d.0 + double_Ul.1 * dk.d.1;
 
     dl.sum::<G1Projective>() - d

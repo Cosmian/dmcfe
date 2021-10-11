@@ -27,7 +27,7 @@ fn client_simulation(
     let pk = bus::wait_n(pk_bus_tx, n, id)?;
 
     //encrypt the data
-    let c = xi.iter().map(|xij| dsum::encode(xij, &ski, &pk, &label));
+    let c = xi.iter().map(|xij| dsum::encode(xij, &ski, &pk, label));
 
     // share the chiphered data
     for ci in c {

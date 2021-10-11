@@ -21,11 +21,13 @@ impl Label {
         ))
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
     pub fn aggregate(&mut self, x: &Scalar) {
         self.0.append(&mut x.to_bytes().to_vec());
+    }
+}
+
+impl AsRef<[u8]> for Label {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }

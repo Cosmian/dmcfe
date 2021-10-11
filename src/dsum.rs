@@ -47,7 +47,7 @@ pub struct KeyPair(pub PrivateKey, pub PublicKey);
 /// - `ski`:    some client secret key
 /// - `pkj`:    some other client public key
 fn h(label: &Label, ski: &PrivateKey, pkj: &PublicKey) -> Scalar {
-    let pki = PublicKey(tools::smul_in_g1(&ski));
+    let pki = PublicKey(tools::smul_in_g1(ski));
     let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki.0)));
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj.0)));
 
@@ -56,10 +56,10 @@ fn h(label: &Label, ski: &PrivateKey, pkj: &PublicKey) -> Scalar {
             pkj,
             &pki,
             &(pkj * ski),
-            &label.to_bytes(),
+            label.as_ref(),
         )),
         Ordering::Equal => Scalar::zero(),
-        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj * ski), &label.to_bytes()),
+        Ordering::Greater => tools::hash_to_scalar(&pki, pkj, &(pkj * ski), label.as_ref()),
     }
 }
 
