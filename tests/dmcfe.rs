@@ -4,22 +4,27 @@ mod bus;
 
 use bus::{Bus, BusTx};
 
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, Gt, Scalar};
-use dmcfe::{ipdmcfe, label::Label, types};
+use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
+use dmcfe::{dsum, ipdmcfe, label::Label};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
 
+/// Number of decryption keys asked by the user
+const NB_DK: u8 = 2;
+
 /// structure containing all the buses used for the simulation
 /// - `n`:  number of bus clients
+/// - `yi`: decryption function components channel
 /// - `pk`: public key bus channel
 /// - `dk`: partial decryption key bus channel
 /// - `ci`: cyphertext bus channel
 struct SimuBus {
     n: usize,
-    pk: Bus<types::TMat<G1Projective>>,
+    yi: Bus<Scalar>,
+    pk: Bus<dsum::PublicKey>,
     dk: Bus<ipdmcfe::PartialDecryptionKey>,
-    ci: Bus<ipdmcfe::CypherText>,
+    ci: Bus<((ipdmcfe::CypherText, Label), usize)>,
 }
 
 impl SimuBus {
@@ -28,9 +33,10 @@ impl SimuBus {
     fn new(n: usize) -> Self {
         SimuBus {
             n,
-            pk: Bus::<types::TMat<G1Projective>>::open(n),
+            yi: Bus::<Scalar>::open(n),
+            pk: Bus::<dsum::PublicKey>::open(n),
             dk: Bus::<ipdmcfe::PartialDecryptionKey>::open(n),
-            ci: Bus::<ipdmcfe::CypherText>::open(n),
+            ci: Bus::<((ipdmcfe::CypherText, Label), usize)>::open(n),
         }
     }
 
@@ -46,6 +52,7 @@ impl SimuBus {
     fn get_tx(&self) -> SimuTx {
         SimuTx {
             n: self.n,
+            yi: self.yi.tx.clone(),
             pk: self.pk.tx.clone(),
             dk: self.dk.tx.clone(),
             ci: self.ci.tx.clone(),
@@ -55,88 +62,162 @@ impl SimuBus {
 
 /// Bus transmission channels used in the simulation
 /// - `n`:  number of bus clients
+/// - `yi`: decryption function components channel
 /// - `pk`: public key bus channel
 /// - `dk`: partial decryption key bus channel
 /// - `ci`: cyphertext bus channel
 #[derive(Clone)]
 struct SimuTx {
     n: usize,
-    pk: BusTx<types::TMat<G1Projective>>,
+    yi: BusTx<Scalar>,
+    pk: BusTx<dsum::PublicKey>,
     dk: BusTx<ipdmcfe::PartialDecryptionKey>,
-    ci: BusTx<ipdmcfe::CypherText>,
+    ci: BusTx<((ipdmcfe::CypherText, Label), usize)>,
 }
 
-/// Setup step of the DMCFE algorithm. It has a high communication cost, but it
-/// is executed only once.
-/// - `n`:  number of clients
+/// Generate a random scalar
+fn random_scalar() -> Scalar {
+    Scalar::from_raw([
+        rand::random(),
+        rand::random(),
+        rand::random(),
+        rand::random(),
+    ])
+}
+
+/// Reorder the given vector of `(T, i)` elements given `i`.
+/// Return the vector of `T` elements.
+/// - `v`:  vector to sort
+fn reorder<T: Clone>(v: &mut [(T, usize)]) -> Vec<T> {
+    v.sort_by_key(|vi| vi.1);
+    v.iter().map(|vi| vi.0.clone()).collect()
+}
+
+/// Check labels used to encrypt cyphertexts are identical.
+/// - `c`:  list of cyphertexts along with their labels
+fn check_labels(c: &[(ipdmcfe::CypherText, Label)]) -> Result<(Vec<ipdmcfe::CypherText>, Label)> {
+    let mut iter = c.iter();
+    let mut c = Vec::with_capacity(c.len());
+    let (ct, label) = iter.next().unwrap();
+    c.push(*ct);
+    for (ct, l) in iter {
+        eyre::ensure!(
+            *l.as_ref() == *label.as_ref(),
+            "Cyphertexts are using different labels!"
+        );
+        c.push(*ct);
+    }
+    Ok((c, label.clone()))
+}
+
+/// Send decryption function to the clients, wait for the associated partial
+/// decryption keys and compute the final decryption key.
+/// - `tx`: bus
+fn get_decryption_key(tx: &SimuTx) -> Result<ipdmcfe::DecryptionKey> {
+    // generate a new decrytion function
+    let y: Vec<Scalar> = (0..(tx.n - 1)).map(|_| random_scalar()).collect();
+    // broadcast it to the clients
+    for &yi in y.iter() {
+        bus::broadcast(&tx.yi, yi)?;
+    }
+    // wait for the partial decryption keys
+    let dk_list = bus::wait_n(&tx.dk, tx.n - 1, tx.n - 1)?;
+    // return the final decryption key
+    Ok(ipdmcfe::key_comb(&y, &dk_list))
+}
+
+/// Setup step of the DMCFE algorithm.
 /// - `id`: client network id
-/// - `y`:  decryption function
 /// - `tx`: bus transmission channels
-fn setup(n: usize, id: usize, y: &[Scalar], tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
-    println!("Setup ({}/{})", id, n - 1);
-    let ti = ipdmcfe::t_gen();
+fn client_setup(id: usize, tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
+    // generate the DSum keys to create the `T` matrix
+    let dsum::KeyPair(ski, pki) = dsum::client_setup();
+    bus::broadcast(&tx.pk, pki)?;
+    let pk_list = bus::wait_n(&tx.pk, tx.n - 1, id)?;
 
-    // share all cyphered `ti` among clients
-    bus::broadcast(&tx.pk, ipdmcfe::t_share(&ti))?;
-    let pk_list = bus::wait_n(&tx.pk, n, id)?;
-
-    // generate the secret key and the partial decryption key
-    let ski = ipdmcfe::setup(&ti, &pk_list, y);
-    let dki = ipdmcfe::dkey_gen_share(&ski, &y[id], y);
-
-    bus::unicast(&tx.dk, n, dki)?;
-
-    Ok(ski)
+    // generate the DMCFE secret key
+    Ok(ipdmcfe::setup(&ski, &pk_list))
 }
 
 /// Simulate a client:
 /// - compute the cyphered contributions;
-/// - compute the partial decryption key;
-/// - send the cyphertexts and the partial decryption key to the decryption client
-fn client_simulation(n: usize, id: usize, xi: &Scalar, y: &[Scalar], bus: &SimuTx) -> Result<()> {
-    // TODO: y should be received from the decryption client
-    let ski = setup(n, id, y, bus)?;
+/// - compute the partial decryption key upon reception of a decryption function;
+/// - send cyphertexts and partial decryption keys to the decryption client.
+/// Return the contribution used, for test puropose only. In real life
+/// applications, the contribution should never be shared!
+///
+/// - `id`: client network ID
+/// - `tx`: bus transmission channels
+fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
+    // Generate setup variables
+    let ski = client_setup(id, tx)?;
 
-    // Encryption step
-    // Lower communication cost
-    // Can be executed many times for the given function, with different data
-    let ci = ipdmcfe::encrypt(&ski, xi, &Label::new()?);
-    bus::unicast(&bus.ci, n, ci) // send the cyphertext to the receiver
+    // Send cyphered contribution to the user.
+    let c_handle = {
+        let (ski, tx) = (ski.clone(), tx.clone());
+        thread::spawn(move || -> Result<Scalar> {
+            let l = Label::new()?;
+            let xi: Scalar = random_scalar();
+            let cij = ipdmcfe::encrypt(&xi, &ski, &l);
+            bus::unicast(&tx.ci, tx.n - 1, ((cij, l), id))?;
+            Ok(xi)
+        })
+    };
+
+    // Note: this loop should run until the thread is closed. For
+    // testing purposes, we need it to terminate in order to return
+    // the thread data `xi` to check the final result
+    for _ in 0..NB_DK {
+        let y = bus::wait_n(&tx.yi, tx.n - 1, id)?;
+        let dki = ipdmcfe::dkey_gen_share(&ski, &y[id], &y);
+        bus::unicast(&tx.dk, tx.n - 1, dki)?;
+    }
+
+    // We return the `xi` for testing purpose only: in real aplications, the
+    // contribution should never be shared!
+    Ok(c_handle
+        .join()
+        .map_err(|err| eyre::eyre!("Error while sending the cyphertext: {:?}", err))??)
 }
 
-/// Receive cyphered contributions from other clients, along with partial decryption keys.
-/// It builds the decryption key and use it to compute and return `G*<x,y>`.
-fn decrypt_simulation(y: &[Scalar], tx: &SimuTx) -> Result<Gt> {
-    // Label
-    let l = Label::new()?;
-
-    // Build the decryption key
-    let dk_handle = {
+/// Simulate the final user. Ask for partial decryption keys from the clients,
+/// get the cyphertexts, decrypt data using the received decryption keys.
+/// - `tx`: bus transmission channels
+fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> {
+    // Listen to the clients and wait for the cyphertexts.
+    let c_handle = {
         let tx = tx.clone();
-        let y = y.to_vec();
-        thread::spawn(move || -> Result<ipdmcfe::DecryptionKey> {
-            let dk_list = bus::wait_n(&tx.dk, tx.n - 1, tx.n - 1)?;
-            Ok(ipdmcfe::key_comb(&y, &dk_list))
-        })
+        thread::spawn(
+            move || -> Result<Vec<((ipdmcfe::CypherText, Label), usize)>> {
+                bus::wait_n(&tx.ci, tx.n - 1, tx.n - 1)
+            },
+        )
     };
 
-    // Get all cyphertexts
-    let C_handle = {
-        let tx = tx.clone();
-        thread::spawn(move || -> Result<Vec<ipdmcfe::CypherText>> {
-            bus::wait_n(&tx.ci, tx.n - 1, tx.n - 1)
-        })
-    };
+    // Ask for some decryption keys.
+    let mut dk_list = Vec::with_capacity(NB_DK as usize);
+    for _ in 0..NB_DK {
+        dk_list.push(get_decryption_key(&tx)?);
+    }
 
-    Ok(ipdmcfe::decrypt(
-        &C_handle
+    // Ensure we got all the cyphertexts
+    let c = reorder(
+        &mut c_handle
             .join()
             .map_err(|err| eyre::eyre!("Error while getting the cyphertexts: {:?}", err))??,
-        &dk_handle
-            .join()
-            .map_err(|err| eyre::eyre!("Error while getting the decryption key: {:?}", err))??,
-        &l,
-    ))
+    );
+
+    let (c, l) = check_labels(&c)?;
+
+    // Decrypt the set of cyphertexts with each decryption key.
+    Ok(dk_list
+        .iter()
+        .map(
+            |dk: &ipdmcfe::DecryptionKey| -> (ipdmcfe::DecryptionKey, Gt) {
+                (dk.clone(), ipdmcfe::decrypt(&c, dk, &l))
+            },
+        )
+        .collect())
 }
 
 /// Simulate a complete MCFE encryption and decryption process. The encryption
@@ -144,71 +225,59 @@ fn decrypt_simulation(y: &[Scalar], tx: &SimuTx) -> Result<Gt> {
 /// with `m contributions. The decryption is done by another client who gathers
 /// the partial encription keys and cyphertexts and compute the complete
 /// decryption key.
-/// - `x`:  the contribution vector
-/// - `y`:  the vector associated with the decryption function
-/// - `l`:  the label
+/// - `n`:  number of clients
 /// It returns the result of the MCFE in G1.
-fn simulation(x: &[Scalar], y: &[Scalar]) -> Result<Gt> {
-    // check input sizes:
-    // x and y should have the same size since `<x,y>` is to be computed
-    eyre::ensure!(x.len() == y.len(), "x and y should have the same size!");
-
-    // define simulation parameters
-    let n = x.len();
-
+fn simulation(n: usize) -> Result<()> {
     // open the bus
     let bus = SimuBus::new(n + 1);
 
-    // Launch the receiver
+    // Launch the user
     let res = {
-        let y = y.to_vec();
         let tx = bus.get_tx();
-        thread::spawn(move || decrypt_simulation(&y, &tx))
+        thread::spawn(move || decrypt_simulation(&tx))
     };
 
     // Launch the clients
-    let children: Vec<thread::JoinHandle<Result<()>>> = (0..x.len())
+    let children: Vec<thread::JoinHandle<Result<Scalar>>> = (0..n)
         .map(|id| {
-            let (xi, y, bus) = (x[id].clone(), y.to_vec(), bus.get_tx());
-            thread::spawn(move || client_simulation(n, id, &xi, &y, &bus))
+            let bus = bus.get_tx();
+            thread::spawn(move || client_simulation(id, &bus))
         })
         .collect();
 
-    // Get the result from the children
-    for child in children {
-        child
-            .join()
-            .map_err(|err| eyre::eyre!("Error in client thread: {:?}", err))??;
+    // Get the contributions used by the children
+    let x = children
+        .into_iter()
+        .map(|child| -> Result<Scalar> {
+            child
+                .join()
+                .map_err(|err| eyre::eyre!("Error in client thread: {:?}", err))?
+        })
+        .collect::<Result<Vec<Scalar>>>()?;
+
+    // Get the results from the user
+    let res = res
+        .join()
+        .map_err(|err| eyre::eyre!("Error in the receiver thread: {:?}", err))??;
+
+    // Check the results
+    for (dk, res) in res {
+        eyre::ensure!(
+            res == pairing(&G1Affine::generator(), &G2Affine::generator())
+                * x.iter()
+                    .zip(dk.y.iter())
+                    .map(|(xi, yi)| yi * xi)
+                    .sum::<Scalar>(),
+            "Wrong result!"
+        )
     }
 
     bus.close()?;
 
-    res.join()
-        .map_err(|err| eyre::eyre!("Error in the receiver thread: {:?}", err))?
+    Ok(())
 }
 
 #[test]
 fn test_dmcfe() -> Result<()> {
-    // number of clients
-    let n_client = rand::thread_rng().gen_range(2..20);
-    // messages
-    let messages = vec![Scalar::from_raw([rand::random(); 4]); n_client];
-    // decryption function
-    let y = vec![Scalar::from_raw([rand::random(); 4]); n_client];
-
-    // compute the solution `G * <x,y>`
-    // stay in G1 to avoid computing the discrete log
-    let s: Gt = pairing(&G1Affine::generator(), &G2Affine::generator())
-        * messages
-            .iter()
-            .zip(y.iter())
-            .map(|(xi, yi)| xi * yi)
-            .sum::<Scalar>();
-
-    // check all children have the correct result
-    eyre::ensure!(
-        s == simulation(&messages, &y)?,
-        "Error while computing the DMCFE: incorrect result!"
-    );
-    Ok(())
+    simulation(rand::thread_rng().gen_range(2..20))
 }

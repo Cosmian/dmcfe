@@ -7,10 +7,8 @@ use std::time::SystemTime;
 pub struct Label(Vec<u8>);
 
 impl Label {
-    /// Get the timestamp as a label
+    /// Get the timestamp as a label. Round to minutes.
     pub fn new() -> Result<Self> {
-        // the label is typically a timestamp
-        // it allows to encrypt data periodically
         Ok(Self(
             (SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)?
@@ -21,8 +19,12 @@ impl Label {
         ))
     }
 
-    pub fn aggregate(&mut self, x: &Scalar) {
-        self.0.append(&mut x.to_bytes().to_vec());
+    pub fn from_bytes(b: &[u8]) -> Self {
+        Self(b.to_vec())
+    }
+
+    pub fn aggregate(&mut self, r: &[u8]) {
+        self.0.append(&mut r.to_vec());
     }
 
     pub fn from_scalar_vec(vec: &[Scalar]) -> Self {
