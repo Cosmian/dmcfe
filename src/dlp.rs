@@ -100,8 +100,14 @@ pub mod kangaroo {
     use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use eyre::Result;
 
-    // Hash function for a point on `Gt`
+    /// Hash table used to store precomputed distinguished points.
+    type Table = HashMap<[u8; super::SHA256_SIZE], Scalar>;
+
+    /// Hash function for a point on `Gt`
     fn hash(P: &Gt) -> [u8; super::SHA256_SIZE] {
         Sha256::digest(&P.to_compressed()).into()
     }
@@ -131,7 +137,7 @@ pub mod kangaroo {
     }
 
     #[test]
-    fn test_is_distinguished() -> eyre::Result<()> {
+    fn test_is_distinguished() -> Result<()> {
         // replace the `Gt` point by a bit-string for easier testing
         fn is_distinguished_stubbed(b: &[u8], d: usize) -> bool {
             for bit in 0..d {
@@ -204,13 +210,7 @@ pub mod kangaroo {
     /// - `w`:      walks size
     /// - `d`:      distinguishing parameter
     /// - `jumps`:  list of random points fot the adding walk
-    fn gen_table(
-        l: u64,
-        t: usize,
-        w: usize,
-        d: u32,
-        jumps: &[Scalar],
-    ) -> HashMap<[u8; super::SHA256_SIZE], Scalar> {
+    pub fn gen_table(l: u64, t: usize, w: usize, d: u32, jumps: &[Scalar]) -> Result<Table> {
         // `Gt` group generator
         let g: Gt = pairing(&G1Affine::generator(), &G2Affine::generator());
 
@@ -219,7 +219,7 @@ pub mod kangaroo {
 
         while table.len() < t {
             // choose a small random coefficient to start the walk
-            let y0 = tools::bounded_random_scalar(l);
+            let y0 = tools::bounded_random_scalar(1, l)?;
             // compute a walk; if a distinguished point is found, add it to the table
             if let Some((P, coeff)) = adding_walk(jumps, &g, &(g * y0), &y0, w, d) {
                 table.insert(hash(&P), coeff);
@@ -227,37 +227,115 @@ pub mod kangaroo {
             }
         }
 
-        table
+        Ok(table)
+    }
+
+    /// Write the given precomputed table to the file with the given name.
+    /// - `filename`:   name of the file
+    /// - `table`:      precomputed table
+    pub fn write_table(filename: &str, table: &Table) -> Result<()> {
+        // erase previously saved data
+        let mut file = File::create(filename)?;
+        for (key, value) in table {
+            eyre::ensure!(
+                super::SHA256_SIZE == file.write(key)?,
+                "Couldn't write all bytes for the hash table key: {:?}",
+                key
+            );
+            eyre::ensure!(
+                32 == file.write(&value.to_bytes())?,
+                "Couldn't write all bytes for the hash table value: {:?}",
+                value
+            );
+        }
+        Ok(())
+    }
+
+    /// Read the precomputed table from the file with the given name.
+    /// - `filename`:   name of the file
+    pub fn read_table(filename: &str) -> eyre::Result<Table> {
+        // Open the path in read-only mode
+        let mut file = match File::open(filename) {
+            Err(why) => panic!("couldn't open {}: {}", filename, why),
+            Ok(file) => file,
+        };
+
+        let mut table = HashMap::new();
+        let (mut key, mut value) = ([0u8; super::SHA256_SIZE], [0u8; 32]);
+
+        while super::SHA256_SIZE == file.read(&mut key)? {
+            eyre::ensure!(
+                32 == file.read(&mut value)?,
+                "Couldn't read all bytes of the value corresponding to the key: {:?}",
+                key
+            );
+
+            let s = Scalar::from_bytes(&value).unwrap_or(Scalar::zero());
+
+            eyre::ensure!(
+                s != Scalar::zero(),
+                "Error while converting read bytes into scalar! {:?}",
+                value
+            );
+
+            table.insert(key, s);
+        }
+
+        Ok(table)
     }
 
     /// Generate `k` random jumps. The mean of their indices should be comparable with `sqrt(l)`,
     /// where `l` is the size of the interval on which the DLP is solved.
     /// - `l`:  interval size
     /// - `k`:  number of point to generate
-    fn gen_jumps(l: u64, k: usize) -> Vec<Scalar> {
+    pub fn gen_jumps(l: u64, k: usize) -> eyre::Result<Vec<Scalar>> {
         // uniform distribution in `[0, 2*sqrt(l)]`
         let max = 2 * (l as f64).sqrt() as u64;
         (0..k)
-            .map(|_| crate::tools::bounded_random_scalar(max))
+            .map(|_| tools::bounded_random_scalar(1, max))
             .collect()
     }
 
-    /// Get the jumps used for the precomputed table.
-    /// TODO: read from file
-    pub fn get_jumps(l: u64, k: usize) -> Vec<Scalar> {
-        gen_jumps(l, k)
+    /// Write the given jumps to the file with the given name.
+    /// - `filename`:   name of the file
+    /// - `table`:      jumps
+    pub fn write_jumps(filename: &str, jumps: &[Scalar]) -> eyre::Result<()> {
+        // erase previously saved data
+        let mut file = File::create(filename)?;
+        for jump in jumps {
+            eyre::ensure!(
+                32 == file.write(&jump.to_bytes())?,
+                "Couldn't write all bytes for the jump: {:?}",
+                jump
+            );
+        }
+        Ok(())
     }
 
-    /// Get the precomputed table.
-    /// TODO: read from file
-    pub fn get_table(
-        l: u64,
-        t: usize,
-        w: usize,
-        d: u32,
-        m: &[Scalar],
-    ) -> HashMap<[u8; super::SHA256_SIZE], Scalar> {
-        gen_table(l, t, w, d, m)
+    /// Read the jumps from the file with the given name.
+    /// - `filename`:   name of the file
+    pub fn read_jumps(filename: &str) -> eyre::Result<Vec::<Scalar>> {
+        // Open the path in read-only mode
+        let mut file = match File::open(filename) {
+            Err(why) => panic!("couldn't open {}: {}", filename, why),
+            Ok(file) => file,
+        };
+
+        let mut jumps = Vec::new();
+        let mut jump = [0u8; 32];
+        while 32 == file.read(&mut jump)? {
+            let s = Scalar::from_bytes(&jump).unwrap_or(Scalar::zero());
+
+            eyre::ensure!(
+                s != Scalar::zero(),
+                "Error while converting read bytes into scalar! {:?}",
+               jump
+            );
+
+            jumps.push(s);
+        }
+
+        Ok(jumps)
     }
 
     /// Solve the DLP using the kangaroo method.
@@ -266,7 +344,7 @@ pub mod kangaroo {
     /// - `w`:      walk size
     /// - `d`:      distinguishing parameter
     pub fn solve(
-        table: &HashMap<[u8; super::SHA256_SIZE], Scalar>,
+        table: &Table,
         jumps: &[Scalar],
         h: &Gt,
         l: u64,

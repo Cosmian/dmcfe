@@ -5,9 +5,9 @@ use bls12_381::{
     G1Affine, G1Projective, G2Projective, Scalar,
 };
 use eyre::Result;
+use rand::Rng;
 use sha2::{Digest, Sha256, Sha512};
 use std::cmp::Ordering;
-use rand::Rng;
 
 const DST: &[u8] = b"simple_DST";
 
@@ -28,8 +28,14 @@ pub(crate) fn random_scalar() -> Scalar {
 }
 
 /// Draw a random scalar from Fp.
-pub(crate) fn bounded_random_scalar(m: u64) -> Scalar {
-    Scalar::from_raw([rand::thread_rng().gen_range(0..m), 0, 0, 0])
+pub(crate) fn bounded_random_scalar(min: u64, max: u64) -> Result<Scalar> {
+    eyre::ensure!(min < max, "min bound > max bound!");
+    Ok(Scalar::from_raw([
+        rand::thread_rng().gen_range(min..max),
+        0,
+        0,
+        0,
+    ]))
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
