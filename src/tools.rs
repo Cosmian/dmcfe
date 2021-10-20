@@ -7,6 +7,7 @@ use bls12_381::{
 use eyre::Result;
 use sha2::{Digest, Sha256, Sha512};
 use std::cmp::Ordering;
+use rand::Rng;
 
 const DST: &[u8] = b"simple_DST";
 
@@ -24,6 +25,11 @@ pub(crate) fn random_scalar() -> Scalar {
         rand::random(),
         rand::random(),
     ])
+}
+
+/// Draw a random scalar from Fp.
+pub(crate) fn bounded_random_scalar(m: u64) -> Scalar {
+    Scalar::from_raw([rand::thread_rng().gen_range(0..m), 0, 0, 0])
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
