@@ -1,6 +1,6 @@
 use crate::{label::Label, tools};
 use bls12_381::{G1Projective, G2Projective, Scalar};
-use std::ops::Deref;
+use std::ops::{Deref, Mul};
 
 #[derive(Clone, Copy)]
 pub struct CypherText(Scalar);
@@ -13,7 +13,7 @@ impl Deref for CypherText {
     }
 }
 
-impl std::ops::Mul<&G2Projective> for &CypherText {
+impl Mul<&G2Projective> for &CypherText {
     type Output = G2Projective;
 
     fn mul(self, rhs: &G2Projective) -> Self::Output {

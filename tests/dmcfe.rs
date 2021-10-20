@@ -117,7 +117,7 @@ fn get_decryption_key(tx: &SimuTx) -> Result<ipdmcfe::DecryptionKey> {
     // generate a new decrytion function
     let y: Vec<Scalar> = (0..(tx.n - 1)).map(|_| random_scalar()).collect();
     // broadcast it to the clients
-    for &yi in y.iter() {
+    for &yi in &y {
         bus::broadcast(&tx.yi, yi)?;
     }
     // wait for the partial decryption keys
@@ -143,7 +143,7 @@ fn client_setup(id: usize, tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
 /// - compute the cyphered contributions;
 /// - compute the partial decryption key upon reception of a decryption function;
 /// - send cyphertexts and partial decryption keys to the decryption client.
-/// Return the contribution used, for test puropose only. In real life
+/// Return the contribution used, for test purpose only. In real life
 /// applications, the contribution should never be shared!
 ///
 /// - `id`: client network ID
