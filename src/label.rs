@@ -24,6 +24,13 @@ impl Label {
     pub fn aggregate(&mut self, x: &Scalar) {
         self.0.append(&mut x.to_bytes().to_vec());
     }
+
+    pub fn from_scalar_vec(vec: &[Scalar]) -> Self {
+        let mut res: Vec<u8> = vec![];
+        vec.iter()
+            .for_each(|val| res.append(&mut val.to_bytes().to_vec()));
+        Label(res)
+    }
 }
 
 impl AsRef<[u8]> for Label {
