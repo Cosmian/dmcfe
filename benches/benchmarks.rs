@@ -2,7 +2,7 @@ mod benchmark_tools;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::time::Duration;
 
-fn benchmark_dlp(c: &mut Criterion) {
+fn benchmark_bsgs(c: &mut Criterion) {
     c.bench_function("DLP 1_000", |b| {
         b.iter(|| benchmark_tools::get_time_dlp(black_box(1_000)))
     });
@@ -33,5 +33,9 @@ fn benchmark_dlp(c: &mut Criterion) {
     group_1_000_000_000_000.finish();
 }
 
-criterion_group!(benches, benchmark_dlp);
-criterion_main!(benches);
+fn benchmark_kangaroo(_: &mut Criterion) -> eyre::Result<()> {
+    benchmark_tools::gen()
+}
+criterion_group!(bsgs, benchmark_bsgs);
+criterion_group!(kangaroo, benchmark_kangaroo);
+criterion_main!(bsgs, kangaroo);
