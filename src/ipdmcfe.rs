@@ -4,7 +4,6 @@ use crate::{
     types::{DVec, TMat},
 };
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
-//use eyre::Result;
 
 /// DMCFE cyphertext type
 #[derive(Clone, Copy)]
@@ -75,7 +74,7 @@ pub fn setup(ti: &TMat<Scalar>, pk_list: &[TMat<G1Projective>], y: &[Scalar]) ->
 
 /// Encrypt the `T` matrix.
 /// - `ski`:    private key
-/// - `yi`:     composante of the DMCFE decryption function associated to the client `i`
+/// - `yi`:     component of the DMCFE decryption function associated to the client `i`
 /// - `y`:      decryption function
 /// TODO: find a nice way not to pass both `y` and `yi`
 pub fn dkey_gen_share(ski: &PrivateKey, yi: &Scalar, y: &[Scalar]) -> PartialDecryptionKey {

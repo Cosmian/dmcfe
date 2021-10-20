@@ -6,19 +6,8 @@ use std::{
 };
 
 /// DMCFE `T` matrix
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TMat<T>(pub(crate) [[T; 2]; 2]);
-
-impl<T: Default> Default for TMat<T> {
-    fn default() -> Self {
-        TMat::new(
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        )
-    }
-}
 
 impl<T> Deref for TMat<T> {
     type Target = [[T; 2]; 2];
@@ -58,10 +47,10 @@ where
 
     fn mul(self, rhs: &'a G1Projective) -> Self::Output {
         TMat::new(
-            &self[0][0] * &rhs,
-            &self[0][1] * &rhs,
-            &self[1][0] * &rhs,
-            &self[1][1] * &rhs,
+            &self[0][0] * rhs,
+            &self[0][1] * rhs,
+            &self[1][0] * rhs,
+            &self[1][1] * rhs,
         )
     }
 }
@@ -91,7 +80,7 @@ impl TMat<Scalar> {
 }
 
 /// 2 dimensional vector
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct DVec<T>(pub [T; 2]);
 
 impl<T> DVec<T> {
@@ -146,12 +135,6 @@ where
             self[0].clone() + rhs[0].clone(),
             self[1].clone() + rhs[1].clone(),
         ])
-    }
-}
-
-impl<T: Default> Default for DVec<T> {
-    fn default() -> Self {
-        DVec::new((Default::default(), Default::default()))
     }
 }
 
