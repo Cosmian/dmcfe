@@ -1,9 +1,31 @@
 use crate::{label::Label, tools};
-use bls12_381::{G1Projective, Scalar};
-use std::ops::Deref;
+use bls12_381::{G1Projective, G2Projective, Scalar};
+use std::ops::{Deref, Mul};
 
 #[derive(Clone, Copy)]
 pub struct CypherText(Scalar);
+
+impl Deref for CypherText {
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Mul<&G2Projective> for &CypherText {
+    type Output = G2Projective;
+
+    fn mul(self, rhs: &G2Projective) -> Self::Output {
+        rhs * self.0
+    }
+}
+
+impl Default for CypherText {
+    fn default() -> Self {
+        Self(Scalar::zero())
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct PrivateKey(Scalar);

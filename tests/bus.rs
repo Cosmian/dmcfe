@@ -191,7 +191,7 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
     loop {
         match rx
             .recv()
-            .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))?
+            .map_err(|err| eyre::eyre!("Receive Error: {:?}", err))?
         {
             Packet::SendRequest(request) => db.manage_send(request),
             Packet::FetchRequest(request) => db.manage_fetch(request)?,
@@ -217,7 +217,8 @@ pub fn broadcast<T>(tx: &BusTx<T>, data: T) -> Result<()> {
     )
 }
 
-/// Send the given data to the client with the given ID.
+/// Send the given data to the client with the given ID. This is a private
+/// communication and should use encryption in real applications.
 /// - `tx`:     bus transmission channel
 /// - `id`:     receiver client id
 /// - `data`:   data to send
@@ -389,11 +390,6 @@ mod test {
 
             let mut res_ref: Vec<usize> = res[0].clone();
             res_ref.sort();
-
-            println!("{}", n * m);
-            for client_res in res.iter_mut() {
-                println!("{}", client_res.len());
-            }
 
             for client_res in res.iter_mut().skip(1) {
                 // assert the size is correct

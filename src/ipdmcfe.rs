@@ -1,4 +1,5 @@
 use crate::{
+    dsum,
     label::Label,
     tools,
     types::{DVec, TMat},
@@ -12,9 +13,10 @@ pub struct CypherText(G1Projective);
 /// DMCFE private key type
 /// - `s`:  two dimensional scalar vector
 /// - `t`:  2x2 scalar matrix
+#[derive(Clone)]
 pub struct PrivateKey {
     pub s: DVec<Scalar>,
-    pub t: TMat<Scalar>,
+    pub t: TMat<dsum::CypherText>,
 }
 
 /// DMCFE partial decryption key type: `di`
@@ -24,59 +26,40 @@ pub struct PartialDecryptionKey(DVec<G2Projective>);
 /// DMCFE decryption key type: `(y, d)`
 /// - `y`:  decryption function
 /// - `d`:  functional decryption key
+#[derive(Clone)]
 pub struct DecryptionKey {
-    y: Vec<Scalar>,
+    pub y: Vec<Scalar>,
     d: DVec<G2Projective>,
 }
 
-/// Generate a random 2x2 scalar matrix (the `T` matrix)
-pub fn t_gen() -> TMat<Scalar> {
-    TMat::new(
-        tools::random_scalar(),
-        tools::random_scalar(),
-        tools::random_scalar(),
-        tools::random_scalar(),
-    )
-}
-
-// publish the cyphered version of the `T` matrix
-// - `t`:   `T` matrix
-pub fn t_share(ti: &TMat<Scalar>) -> TMat<G1Projective> {
-    ti * &G1Projective::generator()
-}
-
-/// Create `ti`, such that `Sum(ti) = 0`. Use the `h` function from the DSum protocol.
-/// - `ti`:         initial random `T` matrix for the client `i`
-/// - `pk_list`:    list of all encrypted initial random `T` matrices
-/// - `y`:          decryption function
-fn t_compose(ti: &TMat<Scalar>, pk_list: &[TMat<G1Projective>], y: &[Scalar]) -> TMat<Scalar> {
-    let mut res: TMat<Scalar> = Default::default();
-    for pk in pk_list {
-        for i in 0..2 {
-            for j in 0..2 {
-                res[i][j] += tools::h(Label::from_scalar_vec(y).as_ref(), &ti[i][j], &pk[i][j])
-            }
-        }
+/// Create `Ti`, such that `Sum(Ti) = 0`.
+/// - `ski`:        DSum secret key
+/// - `pk_list`:    DSum public keys from all clients
+fn t_gen(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> TMat<dsum::CypherText> {
+    let mut res = [Default::default(); 4];
+    for i in 0..4 {
+        let mut l = Label::from_bytes("Setup".as_bytes());
+        l.aggregate(&(i as u8).to_be_bytes());
+        res[i] = dsum::encode(&Scalar::zero(), ski, pk_list, &l);
     }
-    res
+    TMat::new(res[0], res[1], res[2], res[3])
 }
 
-/// Return the private key.
-/// - `ti`:         initial random `T` matrix
-/// - `pk_list`:    list of all encrypted initial random `T` matrices
-/// - `y`:          decryption function
-pub fn setup(ti: &TMat<Scalar>, pk_list: &[TMat<G1Projective>], y: &[Scalar]) -> PrivateKey {
+/// Return the DMCFE secret key.
+/// - `ski`:        DSum secret key
+/// - `pk_list`:    DSum public keys from all clients
+pub fn setup(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> PrivateKey {
     PrivateKey {
         s: DVec([tools::random_scalar(), tools::random_scalar()]),
-        t: t_compose(ti, pk_list, y),
+        t: t_gen(ski, pk_list),
     }
 }
 
-/// Encrypt the `T` matrix.
-/// - `ski`:    private key
+/// Compute the DMCFE partial decryption key.
+/// - `ski`:    DMCFE private key
 /// - `yi`:     component of the DMCFE decryption function associated to the client `i`
 /// - `y`:      decryption function
-/// TODO: find a nice way not to pass both `y` and `yi`
+/// TODO: find a nicer way not to pass both `y` and `yi`
 pub fn dkey_gen_share(ski: &PrivateKey, yi: &Scalar, y: &[Scalar]) -> PartialDecryptionKey {
     let v = DVec::new(tools::double_hash_to_curve_in_g2(
         Label::from_scalar_vec(y).as_ref(),
@@ -84,7 +67,7 @@ pub fn dkey_gen_share(ski: &PrivateKey, yi: &Scalar, y: &[Scalar]) -> PartialDec
     PartialDecryptionKey(&(&ski.s * yi) * &G2Projective::generator() + &ski.t * &v)
 }
 
-/// Combine the partial decryption keys and return the final decryption key.
+/// Combine the partial decryption keys to return the final decryption key.
 /// - `y`:      decryption function
 /// - `d`:      partial decryption keys
 pub fn key_comb(y: &[Scalar], d: &[PartialDecryptionKey]) -> DecryptionKey {
@@ -94,16 +77,16 @@ pub fn key_comb(y: &[Scalar], d: &[PartialDecryptionKey]) -> DecryptionKey {
     }
 }
 
-/// Encrypts the data of a client `i` for a given label and its encryption key.
-/// - `ski`:    encryption key
+/// Encrypts the data of a client `i` for a given label and encryption key.
 /// - `xi`:     contribution
+/// - `ski`:    encryption key
 /// - `l`:      label
-pub fn encrypt(ski: &PrivateKey, xi: &Scalar, l: &Label) -> CypherText {
+pub fn encrypt(xi: &Scalar, ski: &PrivateKey, l: &Label) -> CypherText {
     let u = DVec::new(tools::double_hash_to_curve_in_g1(l.as_ref()));
     CypherText(u.inner_product(&ski.s) + tools::smul_in_g1(&xi))
 }
 
-/// Decrypt the given cyphertexts for a given label and the decryption key.
+/// Decrypt the given cyphertexts with a given label and decryption key.
 /// - `C`:  cyphertexts
 /// - `dk`: decryption key
 /// - `l`:  label

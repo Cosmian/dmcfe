@@ -8,7 +8,6 @@ use eyre::Result;
 use sha2::{Digest, Sha256, Sha512};
 use std::cmp::Ordering;
 
-const RAW_SCALAR_SIZE: usize = 4;
 const DST: &[u8] = b"simple_DST";
 
 /// Convert the given uint64 into a valid Fp scalar.
@@ -19,7 +18,12 @@ pub(crate) fn integer_to_scalar(x: u64) -> Scalar {
 
 /// Draw a random scalar from Fp.
 pub(crate) fn random_scalar() -> Scalar {
-    Scalar::from_raw([rand::random(); RAW_SCALAR_SIZE])
+    Scalar::from_raw([
+        rand::random(),
+        rand::random(),
+        rand::random(),
+        rand::random(),
+    ])
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
