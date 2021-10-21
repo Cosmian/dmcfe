@@ -39,7 +39,7 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
     Ok(timer.as_millis())
 }
 
-fn get_precomputations(l: u64, t: usize, k: usize, w: usize, n: usize) -> Result<(Jumps, Table)> {
+fn get_precomputations(l: u64, t: usize, u: usize, k: usize, w: usize, n: usize) -> Result<(Jumps, Table)> {
     let table_filename = "benches/table";
     let jumps_filename = "benches/jumps";
 
@@ -50,10 +50,10 @@ fn get_precomputations(l: u64, t: usize, k: usize, w: usize, n: usize) -> Result
         ))
     } else {
         let jumps = dlp::kangaroo::gen_jumps(l, k)?;
-        let table = dlp::kangaroo::gen_table(l, t, w, n, &jumps)?;
+        let table = dlp::kangaroo::gen_improved_table(l, t, w, u, n, &jumps)?;
         // write tables for futur uses
-        dlp::kangaroo::write_jumps("benches/jumps", &jumps)?;
-        dlp::kangaroo::write_table("benches/table", &table)?;
+        dlp::kangaroo::write_jumps(jumps_filename, &jumps)?;
+        dlp::kangaroo::write_table(table_filename, &table)?;
         Ok((jumps, table))
     }
 }
@@ -64,20 +64,22 @@ pub fn gen() -> Result<()> {
     const L: u64 = 2u64.pow(32);
     // Table size
     const T: usize = 2usize.pow(10);
+    // number of tables to generate before selecting the best points
+    const U: usize = 2usize.pow(4);
     // Number of random jumps
     // Chosen based on https://www.jstor.org/stable/2698783
     const K: usize = 16;
     // Alpha constant
-    const ALPHA: f64 = 0.75;
+    const ALPHA: f64 = 1f64 / 16f64;
     // number of threads to launch
-    const N: usize = 16;
+    const N: usize = 2usize.pow(4);
 
     // Compute the walk size
     let w: usize = (ALPHA * (L as f64 / (T as f64)).sqrt()) as usize;
 
-    println!("L: {}, T: {}, K: {}, W: {}, N: {}", L, T, K, w, N);
+    println!("L: {}, T: {}, U: {}, K: {}, W: {}, N: {}", L, T, U, K, w, N);
 
-    let (jumps, table) = get_precomputations(L, T, K, w, N)?;
+    let (jumps, table) = get_precomputations(L, T, U, K, w, N)?;
 
     let h = Scalar::from_raw([rand::thread_rng().gen_range(1..L), 0, 0, 0]);
 
