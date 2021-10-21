@@ -98,14 +98,17 @@ pub mod bsgs {
 pub mod kangaroo {
     use crate::tools;
     use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
+    use eyre::Result;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
     use std::fs::File;
     use std::io::{Read, Write};
-    use eyre::Result;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
 
     /// Hash table used to store precomputed distinguished points.
     type Table = HashMap<[u8; super::SHA256_SIZE], Scalar>;
+    type Jumps = Vec<Scalar>;
 
     /// Hash function for a point on `Gt`
     fn hash(P: &Gt) -> [u8; super::SHA256_SIZE] {
@@ -113,7 +116,7 @@ pub mod kangaroo {
     }
 
     /// Find the partition associated to the given point.
-    /// - `p`:  `Gt` point
+    /// - `P`:  `Gt` point
     /// - `n`:  number of partitions
     fn partition(P: &Gt, n: usize) -> usize {
         let res: [u8; super::SHA256_SIZE] = hash(P);
@@ -162,80 +165,117 @@ pub mod kangaroo {
     }
 
     /// Compute a random adding-walk step.
-    /// - `m`:      list of random points
+    /// - `jumps`:  random jumps
     /// - `Y`:      previous step in the walk
-    /// - `coeff`:  coefficient of the previous step in the walk
+    /// - `y`:      coefficient of the previous step in the walk
     /// - `g`:      `Gt` group generator
-    /// - `h`:      DLP
-    fn adding_step(m: &[Scalar], Y: &Gt, coeff: &Scalar, g: &Gt) -> (Gt, Scalar) {
-        let i = partition(&Y, m.len());
-        (Y + g * m[i], coeff + &m[i])
+    fn adding_step(jumps: &Jumps, Y: &mut Gt, y: &mut Scalar, g: &Gt) {
+        let e = jumps[partition(&Y, jumps.len())];
+        *Y += g * e;
+        *y += e;
     }
 
     /// Compute a r-adding walk of length `w`.
-    /// - `m`:      `r` random points
-    /// - `h`:      DLP
-    /// - `alpha0`: exponent of the first step of the random walk
-    /// - `w`:      walk length
-    fn adding_walk(
-        m: &[Scalar],
-        g: &Gt,
-        Y: &Gt,
-        coeff: &Scalar,
-        w: usize,
-        d: u32,
-    ) -> Option<(Gt, Scalar)> {
-        // initialise the walk
-        let (mut Y, mut coeff) = (*Y, *coeff);
-
-        // random walk
-        // stop when twice the walk length is reached
-        // or when a distinguished point is found
-        for _ in 0..(2 * w) {
-            if is_distinguished(&Y, d as usize) {
-                return Some((Y, coeff));
+    /// - `jumps`:  random jumps
+    /// - `g`:      `Gt` generator
+    /// - `Y0`:     first point in the walk
+    /// - `y0`:     exponent of the first point in the walk
+    /// - `d`:      distinguishing parameter
+    fn adding_walk(jumps: &Jumps, g: &Gt, Y0: Gt, y0: Scalar, d: usize) -> (Gt, Scalar) {
+        let (mut Y, mut y) = (Y0, y0);
+        loop {
+            // stop when a distinguished point is found
+            if is_distinguished(&Y, d) {
+                return (Y, y);
+            } else {
+                adding_step(jumps, &mut Y, &mut y, g);
             }
-
-            let (P, p) = adding_step(m, &mut Y, &mut coeff, g);
-            Y = P;
-            coeff = p;
         }
+    }
 
-        println!("W: Walk failed");
-        None
+    /// Compute the distinguishing parameter from W.
+    /// - `w`:  walk size
+    fn get_distinguishing_parameter(w: usize) -> usize {
+        (w as f64).log2().floor() as usize
+    }
+
+    /// Worker generating a table with the given parameters.
+    /// - `table`:  shared table on which to work
+    /// - `jumps`:  random jumps
+    /// - `g`:      `Gt` generator
+    /// - `l`:      interval size
+    /// - `t`:      table size
+    /// - `d`:      distinguishing parameter
+    fn table_worker(
+        table: Arc<Mutex<Table>>,
+        jumps: Jumps,
+        g: Gt,
+        l: u64,
+        t: usize,
+        d: usize,
+    ) -> Result<()> {
+        let mut len = table.lock().unwrap().len();
+        while len < t {
+            // raise a new kangaroo
+            let y = tools::bounded_random_scalar(1, l)?;
+
+            // let it run
+            let (P, coeff) = adding_walk(&jumps, &g, g * y, y, d);
+
+            // set the trap
+            let mut table = table.lock().unwrap();
+            match table.insert(hash(&P), coeff) {
+                Some(_) => println!("I: value already in table"),
+                None => {
+                    len = table.len();
+                    println!("Table completion: {}/{}", len, t);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Generate a table of `T` precomputed distinguised points, along with their DLP.
+    /// - `l`:      size of the interval
     /// - `t`:      table size
     /// - `w`:      walks size
-    /// - `d`:      distinguishing parameter
+    /// - `n`:      number of threads
     /// - `jumps`:  list of random points fot the adding walk
-    pub fn gen_table(l: u64, t: usize, w: usize, d: u32, jumps: &[Scalar]) -> Result<Table> {
+    pub fn gen_table(l: u64, t: usize, w: usize, n: usize, jumps: &Jumps) -> Result<Table> {
         // `Gt` group generator
-        let g: Gt = pairing(&G1Affine::generator(), &G2Affine::generator());
+        let g = pairing(&G1Affine::generator(), &G2Affine::generator());
+        let d = get_distinguishing_parameter(w);
+        let mut handles = Vec::new();
 
         // precomputed table
-        let mut table = HashMap::with_capacity(t * w);
+        let table = Arc::new(Mutex::new(HashMap::with_capacity(t)));
 
-        while table.len() < t {
-            // choose a small random coefficient to start the walk
-            let y0 = tools::bounded_random_scalar(1, l)?;
-            // compute a walk; if a distinguished point is found, add it to the table
-            if let Some((P, coeff)) = adding_walk(jumps, &g, &(g * y0), &y0, w, d) {
-                table.insert(hash(&P), coeff);
-                println!("Table completion: {}/{}", table.len(), t);
-            }
+        for _ in 0..n {
+            let (jumps, table) = (jumps.to_vec(), table.clone());
+
+            handles.push(thread::spawn(move || {
+                table_worker(table, jumps, g, l, t, d)
+            }));
         }
 
-        Ok(table)
+        for handle in handles {
+            handle.join().unwrap()?;
+        }
+
+        Ok(table.clone().lock().unwrap().clone())
     }
 
     /// Write the given precomputed table to the file with the given name.
     /// - `filename`:   name of the file
     /// - `table`:      precomputed table
     pub fn write_table(filename: &str, table: &Table) -> Result<()> {
-        // erase previously saved data
-        let mut file = File::create(filename)?;
+        // Open the path in write-only mode.
+        // Erase previous file with the same name.
+        let mut file = match File::create(filename) {
+            Err(why) => panic!("Couldn't open {}: {}", filename, why),
+            Ok(file) => file,
+        };
+
         for (key, value) in table {
             eyre::ensure!(
                 super::SHA256_SIZE == file.write(key)?,
@@ -256,7 +296,7 @@ pub mod kangaroo {
     pub fn read_table(filename: &str) -> eyre::Result<Table> {
         // Open the path in read-only mode
         let mut file = match File::open(filename) {
-            Err(why) => panic!("couldn't open {}: {}", filename, why),
+            Err(why) => panic!("Couldn't open {}: {}", filename, why),
             Ok(file) => file,
         };
 
@@ -284,10 +324,11 @@ pub mod kangaroo {
         Ok(table)
     }
 
-    /// Generate `k` random jumps. The mean of their indices should be comparable with `sqrt(l)`,
-    /// where `l` is the size of the interval on which the DLP is solved.
+    /// Generate `k` random jumps. The mean of their indices should be
+    /// comparable with `sqrt(l)`, where `l` is the size of the interval on
+    /// which the DLP is solved.
     /// - `l`:  interval size
-    /// - `k`:  number of point to generate
+    /// - `k`:  number of points to generate
     pub fn gen_jumps(l: u64, k: usize) -> eyre::Result<Vec<Scalar>> {
         // uniform distribution in `[0, 2*sqrt(l)]`
         let max = 2 * (l as f64).sqrt() as u64;
@@ -299,9 +340,14 @@ pub mod kangaroo {
     /// Write the given jumps to the file with the given name.
     /// - `filename`:   name of the file
     /// - `table`:      jumps
-    pub fn write_jumps(filename: &str, jumps: &[Scalar]) -> eyre::Result<()> {
-        // erase previously saved data
-        let mut file = File::create(filename)?;
+    pub fn write_jumps(filename: &str, jumps: &Jumps) -> eyre::Result<()> {
+        // Open the path in write-only mode.
+        // Erase previous file with the same name.
+        let mut file = match File::create(filename) {
+            Err(why) => panic!("Couldn't open {}: {}", filename, why),
+            Ok(file) => file,
+        };
+
         for jump in jumps {
             eyre::ensure!(
                 32 == file.write(&jump.to_bytes())?,
@@ -314,10 +360,10 @@ pub mod kangaroo {
 
     /// Read the jumps from the file with the given name.
     /// - `filename`:   name of the file
-    pub fn read_jumps(filename: &str) -> eyre::Result<Vec::<Scalar>> {
+    pub fn read_jumps(filename: &str) -> eyre::Result<Vec<Scalar>> {
         // Open the path in read-only mode
         let mut file = match File::open(filename) {
-            Err(why) => panic!("couldn't open {}: {}", filename, why),
+            Err(why) => panic!("Couldn't open {}: {}", filename, why),
             Ok(file) => file,
         };
 
@@ -329,7 +375,7 @@ pub mod kangaroo {
             eyre::ensure!(
                 s != Scalar::zero(),
                 "Error while converting read bytes into scalar! {:?}",
-               jump
+                jump
             );
 
             jumps.push(s);
@@ -338,38 +384,84 @@ pub mod kangaroo {
         Ok(jumps)
     }
 
-    /// Solve the DLP using the kangaroo method.
-    /// - `jumps`:  jumps
+    /// Launch wild kangaroos until a match is found.
+    /// - `res`:    solution
+    /// - `table`:  precomputed table
+    /// - `jumps`:  random jumps
+    /// - `g`:      `Gt` generator
     /// - `h`:      DLP
-    /// - `w`:      walk size
     /// - `d`:      distinguishing parameter
-    pub fn solve(
-        table: &Table,
-        jumps: &[Scalar],
-        h: &Gt,
-        l: u64,
-        w: usize,
-        d: u32,
-    ) -> Option<Scalar> {
-        // `Gt` group generator
-        let g: Gt = pairing(&G1Affine::generator(), &G2Affine::generator());
-
-        // release wild kangaroos
-        for i in 1..(l as f64).sqrt() as u64 {
-            // TODO: may parallelise here
-            // start walk from the point `hg^i`
-            let y0 = Scalar::from_raw([i, 0, 0, 0]);
+    /// - `id`:     thread ID
+    /// - `n`:      number of threads
+    fn hunter(
+        res: Arc<Mutex<Scalar>>,
+        table: Table,
+        jumps: Jumps,
+        g: Gt,
+        h: Gt,
+        d: usize,
+        id: u64,
+        n: u64,
+    ) {
+        let mut step = id;
+        while Scalar::zero() == *res.lock().unwrap() {
+            // wild kangaroo
+            let y0 = Scalar::from_raw([step, 0, 0, 0]);
             let P0 = h + g * y0;
-            if let Some((P, y)) = adding_walk(jumps, &g, &P0, &y0, w, d) {
-                if let Some(&x) = table.get(&hash(&P)) {
+
+            // let it run
+            let (P, y) = adding_walk(&jumps, &g, P0, y0, d);
+
+            // check the traps
+            match table.get(&hash(&P)) {
+                Some(&x) => {
                     // check against false positive match due to the hash
                     if g * x == h + g * y {
-                        return Some(x - y);
+                        *res.lock().unwrap() = x - y;
                     }
                 }
+                None => println!("I: value not in the table."),
             }
+
+            step += n;
+        }
+    }
+
+    /// Solve the DLP using the kangaroo method.
+    /// - `table`:  precomputed table
+    /// - `jumps`:  random jumps
+    /// - `h`:      DLP
+    /// - `w`:      walk size
+    /// - `n`:      number of threads
+    pub fn solve(table: &Table, jumps: &Jumps, h: &Gt, w: usize, n: usize) -> Scalar {
+        // `Gt` group generator
+        let g = pairing(&G1Affine::generator(), &G2Affine::generator());
+        let d = get_distinguishing_parameter(w);
+        let mut handles = Vec::with_capacity(n);
+
+        // assert 0 is not the solution of the DLP
+        if *h == g * Scalar::zero() {
+            return Scalar::zero();
         }
 
-        None
+        // use 0 as neutral value
+        let res = Arc::new(Mutex::new(Scalar::zero()));
+        let n = n as u64;
+
+        for i in 0..n {
+            let (res, h) = (res.clone(), h.clone());
+            let (jumps, table) = (jumps.to_vec(), table.clone());
+
+            handles.push(thread::spawn(move || {
+                hunter(res, table, jumps, g, h, d, i, n);
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let res = *res.lock().unwrap();
+        res
     }
 }

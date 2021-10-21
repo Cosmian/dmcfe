@@ -39,7 +39,7 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
     Ok(timer.as_millis())
 }
 
-fn get_precomputations(l: u64, t: usize, k: usize, w: usize, d: u32) -> Result<(Jumps, Table)> {
+fn get_precomputations(l: u64, t: usize, k: usize, w: usize, n: usize) -> Result<(Jumps, Table)> {
     struct Names {
         table: &'static str,
         jumps: &'static str,
@@ -57,7 +57,10 @@ fn get_precomputations(l: u64, t: usize, k: usize, w: usize, d: u32) -> Result<(
         ))
     } else {
         let jumps = dlp::kangaroo::gen_jumps(l, k)?;
-        let table = dlp::kangaroo::gen_table(l, t, w, d, &jumps)?;
+        let table = dlp::kangaroo::gen_table(l, t, w, n, &jumps)?;
+        // write tables for futur uses
+        dlp::kangaroo::write_jumps("benches/jumps", &jumps)?;
+        dlp::kangaroo::write_table("benches/table", &table)?;
         Ok((jumps, table))
     }
 }
@@ -69,31 +72,32 @@ pub fn gen() -> Result<()> {
     // Table size
     const T: usize = 2usize.pow(10);
     // Number of random jumps
+    // Chosen based on https://www.jstor.org/stable/2698783
     const K: usize = 16;
     // Alpha constant
-    const ALPHA: usize = 8;
+    const ALPHA: f64 = 0.75;
+    // number of threads to launch
+    const N: usize = 16;
 
     // Compute the walk size
-    let w: usize = (L as f64 / ((ALPHA.pow(2) * T) as f64)).sqrt() as usize;
-    let d: u32 = (w as f64).log2().floor() as u32;
+    let w: usize = (ALPHA * (L as f64 / (T as f64)).sqrt()) as usize;
 
-    println!("L: {}, T: {}, K: {}, W: {}, d: {}", L, T, K, w, d);
+    println!("L: {}, T: {}, K: {}, W: {}, N: {}", L, T, K, w, N);
 
-    let (jumps, table) = get_precomputations(L, T, K, w, d)?;
+    let (jumps, table) = get_precomputations(L, T, K, w, N)?;
 
     let h = Scalar::from_raw([rand::thread_rng().gen_range(1..L), 0, 0, 0]);
-    if let Some(x) = dlp::kangaroo::solve(
-        &table,
-        &jumps,
-        &(pairing(&G1Affine::generator(), &G2Affine::generator()) * h),
-        L,
-        w,
-        d,
-    ) {
-        eyre::ensure!(h == x, "Wrong DLP solution!");
-        println!("Success!")
-    }
 
-    dlp::kangaroo::write_jumps("benches/jumps", &jumps)?;
-    dlp::kangaroo::write_table("benches/table", &table)
+    eyre::ensure!(
+        h == dlp::kangaroo::solve(
+            &table,
+            &jumps,
+            &(pairing(&G1Affine::generator(), &G2Affine::generator()) * h),
+            w,
+            N,
+        ),
+        "Wrong DLP solution!"
+    );
+    println!("Success!");
+    Ok(())
 }

@@ -36,19 +36,23 @@ fn test_read_write() -> Result<()> {
     const K: usize = 10;
     // DLP upper bound
     const L: u64 = 10u64.pow(4);
-    // distinguishing parameter
-    const D: u32 = 4;
+    // number of threads
+    const N: usize = 1;
+
+    // table names
+    let table_filename = "table";
+    let jumps_filename = "jumps";
 
     // get the random jumps
     let jumps = dlp::kangaroo::gen_jumps(L, K)?;
     // get the table
-    let table = dlp::kangaroo::gen_table(L, T, W, D, &jumps)?;
+    let table = dlp::kangaroo::gen_table(L, T, W, N, &jumps)?;
 
-    // write and read the table, check it is the same
-    let table_filename = "table";
-    let jumps_filename = "jumps";
+    // write the table
     dlp::kangaroo::write_jumps(jumps_filename, &jumps)?;
     dlp::kangaroo::write_table(table_filename, &table)?;
+
+    // read the tables and check against the original ones
     eyre::ensure!(
         dlp::kangaroo::read_table(table_filename)? == table,
         "Read table is different from the one written!"
@@ -57,7 +61,6 @@ fn test_read_write() -> Result<()> {
         dlp::kangaroo::read_jumps(jumps_filename)? == jumps,
         "Read table is different from the one written!"
     );
-
 
     Ok(())
 }
@@ -73,22 +76,22 @@ fn test_kangaroo() -> Result<()> {
     const K: usize = 10;
     // DLP upper bound
     const L: u64 = 10u64.pow(4);
-    // distinguishing parameter
-    const D: u32 = 4;
+    // number of threads
+    const N: usize = 8;
 
     // get the random jumps
     let jumps = dlp::kangaroo::gen_jumps(L, K)?;
     // get the table
-    let table = dlp::kangaroo::gen_table(L, T, W, D, &jumps)?;
+    let table = dlp::kangaroo::gen_table(L, T, W, N, &jumps)?;
 
     // create the DLP
     let h: Scalar = Scalar::from_raw([rand::thread_rng().gen_range(0..L), 0, 0, 0]);
     let H: Gt = pairing(&G1Affine::generator(), &G2Affine::generator()) * h;
+
     // find the DLP solution
-    if let Some(x) = dlp::kangaroo::solve(&table, &jumps, &H, L, W, D) {
-        eyre::ensure!(x == h, "Wrong DLP solution!");
-        Ok(())
-    } else {
-        Err(eyre::eyre!("Cannot solve DLP"))
-    }
+    eyre::ensure!(
+        h == dlp::kangaroo::solve(&table, &jumps, &H, W, N),
+        "Wrong DLP solution!"
+    );
+    Ok(())
 }
