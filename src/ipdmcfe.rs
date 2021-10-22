@@ -37,10 +37,10 @@ pub struct DecryptionKey {
 /// - `pk_list`:    DSum public keys from all clients
 fn t_gen(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> TMat<dsum::CypherText> {
     let mut res = [Default::default(); 4];
-    for i in 0..4 {
+    for (i, res) in  res.iter_mut().enumerate() {
         let mut l = Label::from_bytes("Setup".as_bytes());
         l.aggregate(&(i as u8).to_be_bytes());
-        res[i] = dsum::encode(&Scalar::zero(), ski, pk_list, &l);
+        *res = dsum::encode(&Scalar::zero(), ski, pk_list, &l);
     }
     TMat::new(res[0], res[1], res[2], res[3])
 }
@@ -83,7 +83,7 @@ pub fn key_comb(y: &[Scalar], d: &[PartialDecryptionKey]) -> DecryptionKey {
 /// - `l`:      label
 pub fn encrypt(xi: &Scalar, ski: &PrivateKey, l: &Label) -> CypherText {
     let u = DVec::new(tools::double_hash_to_curve_in_g1(l.as_ref()));
-    CypherText(u.inner_product(&ski.s) + tools::smul_in_g1(&xi))
+    CypherText(u.inner_product(&ski.s) + tools::smul_in_g1(xi))
 }
 
 /// Decrypt the given cyphertexts with a given label and decryption key.

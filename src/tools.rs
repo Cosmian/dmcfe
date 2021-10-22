@@ -226,7 +226,7 @@ pub(crate) fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
 /// - `ski`:    some client secret key
 /// - `pkj`:    some other client public key
 pub(crate) fn h(label: &[u8], ski: &Scalar, pkj: &G1Projective) -> Scalar {
-    let pki = smul_in_g1(&ski);
+    let pki = smul_in_g1(ski);
     let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
 

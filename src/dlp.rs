@@ -195,7 +195,7 @@ pub mod kangaroo {
             let y0 = tools::bounded_random_scalar(1, l)?;
 
             // let it run
-            let (P, y) = adding_walk(&jumps, &g, g * y0, y0, d);
+            let (P, y) = adding_walk(jumps, g, g * y0, y0, d);
 
             // set the trap
             let mut table = table.lock().unwrap();
@@ -234,7 +234,8 @@ pub mod kangaroo {
             handle.join().unwrap()?;
         }
 
-        Ok(table.clone().lock().unwrap().clone())
+        let table = table.lock().unwrap().clone();
+        Ok(table)
     }
 
     /// Write the given precomputed table to the file with the given name.
