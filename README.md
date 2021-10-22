@@ -30,13 +30,10 @@ Clients are supposed to be honest-but-curious. This means that they will play by
 - [x] implement `hash_to_scalar` (maybe hash256 + `from_raw`)
 - [x] implement `h_i_j`
 - [ ] review variable notation for making it more consistent (e.g. capital letters for group members and small letters for scalars, add `mat_` or `vec_` prefix to give indications?)
-- [x] add a timeout system when getting data from the bus (in case a client crashes or give the wrong number of contributions, one does not want to wait indefinitly):
-- 	+ where to put it ?
-- 		N directly into the `ibus::get` function
-- 		Y create a new `ibus::wait(n)` function
-- 		N the user of the ibus should manage it:
+- [ ] add a timeout system when getting data from the bus (in case a client crashes or gives the wrong number of contributions, one does not want to wait indefinitly): create a new `ibus::wait(n)` function
 - [x] should the DMCFE manage the thread message passing part? Or should the DSum to it? => NO, communication should be on the user side
 - [ ] add a flag to deactivate at setup the use of the IPFE in the MCFE with repetition
+- [ ] Review code to use group affine representation as they are less memory and computation intensive
 
 ## Notes
 
@@ -49,3 +46,5 @@ Clients are supposed to be honest-but-curious. This means that they will play by
 [1] Shi Bai, Richard P.Brent, On the Efficiency of Pollard's Rho Method for Discrete Logarithms
 
 [2] Teske (1998), Speeding up Pollard's rho method for computing discrete logarithms
+
+[3] Teske (2001), On Random Walks for Pollard's Rho Method

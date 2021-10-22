@@ -1,28 +1,31 @@
+use crate::tools;
 use bls12_381::{G1Affine, G1Projective};
 use eyre::Result;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-use crate::tools;
+type Hash = [u8; 32];
+type Table = HashMap<Hash, u32>;
 
-const SHA256_SIZE: usize = 32;
+/// Hash a point in `G1`.
+/// - `P`:  point in `G1`
+fn hash(P: &G1Projective) -> Hash {
+    Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(P))).into()
+}
 
+/// This algorithm imlements the iteration fonction of the BSGS algorithm.
 /// This algorithm implements the precomputation step of the BSGS algorithms.
 /// It returns a hashed map containing all the precomputed pairs.
 ///
 /// - `m`:  number of pairs to precompute
 ///
 /// See [the notes on DLP](crate::notes::dlp) for more explanations
-fn precomputation(m: u32) -> Result<HashMap<[u8; SHA256_SIZE], u32>> {
+fn precomputation(m: u32) -> Result<Table> {
     let G = G1Projective::generator();
     let mut pairs = HashMap::new();
     let mut P_i = G1Projective::identity();
     for i in 0..m {
-        let mut hasher = Sha256::new();
-        hasher.update(G1Affine::to_compressed(&G1Affine::from(P_i)));
-        let res = hasher.finalize().into();
-        let res = pairs.insert(res, i);
-        if let Some(j) = res {
+        if let Some(j) = pairs.insert(hash(&P_i), i) {
             eyre::bail!(
                 "Hash collision during the precomputation step of the BSGS!\n
             `H(P_i) = H(P_j)`, where `i={}` and `j={}`",
@@ -35,7 +38,6 @@ fn precomputation(m: u32) -> Result<HashMap<[u8; SHA256_SIZE], u32>> {
     Ok(pairs)
 }
 
-/// This algorithm imlements the iteration fonction of the BSGS algorithm.
 ///
 /// - `P`:      right term of the DLP
 /// - `Q`:      inverse of `g^m`
@@ -45,17 +47,14 @@ fn iterate(
     P: &G1Projective,
     Q: &G1Projective,
     n: u32,
-    pairs: &HashMap<[u8; SHA256_SIZE], u32>,
+    pairs: &Table,
 ) -> Option<(u32, u32)> {
     let mut res = None;
     let mut giant_step = 0;
     let mut Q_k = G1Projective::identity();
     let mut P_k = Q_k + P;
     while giant_step < n {
-        let mut hasher = Sha256::new();
-        hasher.update(G1Affine::to_compressed(&G1Affine::from(P_k)));
-        let hash_res: [u8; SHA256_SIZE] = hasher.finalize().into();
-        res = pairs.get(&hash_res);
+        res = pairs.get(&hash(&P_k));
         if res.is_some() {
             break;
         } else {
@@ -78,7 +77,7 @@ fn iterate(
 /// `P`:  right member of the DLP equation
 /// `m`:  `u32` such that `x < mn`
 /// `n`:  `u32` such that `x < mn`
-pub fn bsgs(P: &G1Projective, m: u32, n: u32) -> Result<u64> {
+pub fn solve(P: &G1Projective, m: u32, n: u32) -> Result<u64> {
     // define some heuristics
     // e.g. test the case where the solution is 1
 

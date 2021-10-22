@@ -5,6 +5,7 @@ use bls12_381::{
     G1Affine, G1Projective, G2Projective, Scalar,
 };
 use eyre::Result;
+use rand::Rng;
 use sha2::{Digest, Sha256, Sha512};
 use std::cmp::Ordering;
 
@@ -24,6 +25,17 @@ pub(crate) fn random_scalar() -> Scalar {
         rand::random(),
         rand::random(),
     ])
+}
+
+/// Draw a random scalar from Fp.
+pub(crate) fn bounded_random_scalar(min: u64, max: u64) -> Result<Scalar> {
+    eyre::ensure!(min < max, "min bound > max bound!");
+    Ok(Scalar::from_raw([
+        rand::thread_rng().gen_range(min..max),
+        0,
+        0,
+        0,
+    ]))
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
@@ -214,7 +226,7 @@ pub(crate) fn double_and_add(P: &G1Projective, n: u64) -> G1Projective {
 /// - `ski`:    some client secret key
 /// - `pkj`:    some other client public key
 pub(crate) fn h(label: &[u8], ski: &Scalar, pkj: &G1Projective) -> Scalar {
-    let pki = smul_in_g1(&ski);
+    let pki = smul_in_g1(ski);
     let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
     let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
 

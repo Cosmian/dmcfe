@@ -90,7 +90,7 @@ pub fn key_comb(dki_vec: &[PartialDecryptionKey]) -> Result<DecryptionKey> {
     dki_vec.iter().for_each(|dki| {
         y.push(dki.yi.to_vec());
         d = d + dki.di;
-        ip_dk.push(dki.ip_dki.clone());
+        ip_dk.push(dki.ip_dki);
     });
 
     Ok(DecryptionKey { y, d, ip_dk })
