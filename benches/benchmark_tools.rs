@@ -40,20 +40,13 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
 }
 
 fn get_precomputations(l: u64, t: usize, k: usize, w: usize, n: usize) -> Result<(Jumps, Table)> {
-    struct Names {
-        table: &'static str,
-        jumps: &'static str,
-    }
+    let table_filename = "benches/table";
+    let jumps_filename = "benches/jumps";
 
-    let filenames = Names {
-        table: "benches/table",
-        jumps: "benches/jumps",
-    };
-
-    if Path::new(filenames.table).exists() && Path::new(filenames.jumps).exists() {
+    if Path::new(table_filename).exists() && Path::new(jumps_filename).exists() {
         Ok((
-            dlp::kangaroo::read_jumps(filenames.jumps)?,
-            dlp::kangaroo::read_table(filenames.table)?,
+            dlp::kangaroo::read_jumps(jumps_filename)?,
+            dlp::kangaroo::read_table(table_filename)?,
         ))
     } else {
         let jumps = dlp::kangaroo::gen_jumps(l, k)?;

@@ -139,56 +139,31 @@ pub mod kangaroo {
         true
     }
 
-    #[test]
-    fn test_is_distinguished() -> Result<()> {
-        // replace the `Gt` point by a bit-string for easier testing
-        fn is_distinguished_stubbed(b: &[u8], d: usize) -> bool {
-            for bit in 0..d {
-                if (b[b.len() - (bit / 8) - 1] >> (bit % 8)) % 2 == 1 {
-                    return false;
-                }
-            }
-            true
-        }
-
-        eyre::ensure!(
-            true == is_distinguished_stubbed(&0b0110101101010000u16.to_be_bytes(), 4),
-            "Wrong decision"
-        );
-
-        eyre::ensure!(
-            false == is_distinguished_stubbed(&0b0110101101010000u16.to_be_bytes(), 5),
-            "Wrong decision"
-        );
-
-        Ok(())
-    }
-
     /// Compute a random adding-walk step.
     /// - `jumps`:  random jumps
-    /// - `Y`:      previous step in the walk
-    /// - `y`:      coefficient of the previous step in the walk
+    /// - `P`:      previous step in the walk
+    /// - `y`:      coefficient of `g` in the previous step in the walk
     /// - `g`:      `Gt` group generator
-    fn adding_step(jumps: &Jumps, Y: &mut Gt, y: &mut Scalar, g: &Gt) {
-        let e = jumps[partition(&Y, jumps.len())];
-        *Y += g * e;
+    fn adding_step(jumps: &Jumps, P: &mut Gt, y: &mut Scalar, g: &Gt) {
+        let e = jumps[partition(P, jumps.len())];
+        *P += g * e;
         *y += e;
     }
 
     /// Compute a r-adding walk of length `w`.
     /// - `jumps`:  random jumps
     /// - `g`:      `Gt` generator
-    /// - `Y0`:     first point in the walk
-    /// - `y0`:     exponent of the first point in the walk
+    /// - `P0`:     first point in the walk
+    /// - `y0`:     exponent of `g` in the first point in the walk
     /// - `d`:      distinguishing parameter
-    fn adding_walk(jumps: &Jumps, g: &Gt, Y0: Gt, y0: Scalar, d: usize) -> (Gt, Scalar) {
-        let (mut Y, mut y) = (Y0, y0);
+    fn adding_walk(jumps: &Jumps, g: &Gt, P0: Gt, y0: Scalar, d: usize) -> (Gt, Scalar) {
+        let (mut P, mut y) = (P0, y0);
         loop {
             // stop when a distinguished point is found
-            if is_distinguished(&Y, d) {
-                return (Y, y);
+            if is_distinguished(&P, d) {
+                return (P, y);
             } else {
-                adding_step(jumps, &mut Y, &mut y, g);
+                adding_step(jumps, &mut P, &mut y, g);
             }
         }
     }
@@ -207,9 +182,9 @@ pub mod kangaroo {
     /// - `t`:      table size
     /// - `d`:      distinguishing parameter
     fn table_worker(
-        table: Arc<Mutex<Table>>,
-        jumps: Jumps,
-        g: Gt,
+        table: &Arc<Mutex<Table>>,
+        jumps: &Jumps,
+        g: &Gt,
         l: u64,
         t: usize,
         d: usize,
@@ -217,19 +192,17 @@ pub mod kangaroo {
         let mut len = table.lock().unwrap().len();
         while len < t {
             // raise a new kangaroo
-            let y = tools::bounded_random_scalar(1, l)?;
+            let y0 = tools::bounded_random_scalar(1, l)?;
 
             // let it run
-            let (P, coeff) = adding_walk(&jumps, &g, g * y, y, d);
+            let (P, y) = adding_walk(&jumps, &g, g * y0, y0, d);
 
             // set the trap
             let mut table = table.lock().unwrap();
-            match table.insert(hash(&P), coeff) {
+            len = table.len();
+            match table.insert(hash(&P), y) {
                 Some(_) => println!("I: value already in table"),
-                None => {
-                    len = table.len();
-                    println!("Table completion: {}/{}", len, t);
-                }
+                None => println!("Table completion: {}/{}", len, t),
             }
         }
         Ok(())
@@ -252,9 +225,8 @@ pub mod kangaroo {
 
         for _ in 0..n {
             let (jumps, table) = (jumps.to_vec(), table.clone());
-
             handles.push(thread::spawn(move || {
-                table_worker(table, jumps, g, l, t, d)
+                table_worker(&table, &jumps, &g, l, t, d)
             }));
         }
 
@@ -272,9 +244,9 @@ pub mod kangaroo {
         // Open the path in write-only mode.
         // Erase previous file with the same name.
         let mut file = match File::create(filename) {
-            Err(why) => panic!("Couldn't open {}: {}", filename, why),
-            Ok(file) => file,
-        };
+            Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+            Ok(file) => Ok(file),
+        }?;
 
         for (key, value) in table {
             eyre::ensure!(
@@ -293,12 +265,12 @@ pub mod kangaroo {
 
     /// Read the precomputed table from the file with the given name.
     /// - `filename`:   name of the file
-    pub fn read_table(filename: &str) -> eyre::Result<Table> {
+    pub fn read_table(filename: &str) -> Result<Table> {
         // Open the path in read-only mode
         let mut file = match File::open(filename) {
-            Err(why) => panic!("Couldn't open {}: {}", filename, why),
-            Ok(file) => file,
-        };
+            Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+            Ok(file) => Ok(file),
+        }?;
 
         let mut table = HashMap::new();
         let (mut key, mut value) = ([0u8; super::SHA256_SIZE], [0u8; 32]);
@@ -310,15 +282,12 @@ pub mod kangaroo {
                 key
             );
 
-            let s = Scalar::from_bytes(&value).unwrap_or(Scalar::zero());
-
-            eyre::ensure!(
-                s != Scalar::zero(),
-                "Error while converting read bytes into scalar! {:?}",
-                value
-            );
-
-            table.insert(key, s);
+            let s = Scalar::from_bytes(&value);
+            if s.is_some().into() {
+                table.insert(key, s.unwrap());
+            } else {
+                eyre::eyre!("Error while converting read bytes into scalar! {:?}", value);
+            }
         }
 
         Ok(table)
@@ -329,7 +298,7 @@ pub mod kangaroo {
     /// which the DLP is solved.
     /// - `l`:  interval size
     /// - `k`:  number of points to generate
-    pub fn gen_jumps(l: u64, k: usize) -> eyre::Result<Vec<Scalar>> {
+    pub fn gen_jumps(l: u64, k: usize) -> Result<Vec<Scalar>> {
         // uniform distribution in `[0, 2*sqrt(l)]`
         let max = 2 * (l as f64).sqrt() as u64;
         (0..k)
@@ -340,13 +309,13 @@ pub mod kangaroo {
     /// Write the given jumps to the file with the given name.
     /// - `filename`:   name of the file
     /// - `table`:      jumps
-    pub fn write_jumps(filename: &str, jumps: &Jumps) -> eyre::Result<()> {
+    pub fn write_jumps(filename: &str, jumps: &Jumps) -> Result<()> {
         // Open the path in write-only mode.
         // Erase previous file with the same name.
         let mut file = match File::create(filename) {
-            Err(why) => panic!("Couldn't open {}: {}", filename, why),
-            Ok(file) => file,
-        };
+            Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+            Ok(file) => Ok(file),
+        }?;
 
         for jump in jumps {
             eyre::ensure!(
@@ -360,12 +329,12 @@ pub mod kangaroo {
 
     /// Read the jumps from the file with the given name.
     /// - `filename`:   name of the file
-    pub fn read_jumps(filename: &str) -> eyre::Result<Vec<Scalar>> {
+    pub fn read_jumps(filename: &str) -> Result<Vec<Scalar>> {
         // Open the path in read-only mode
         let mut file = match File::open(filename) {
-            Err(why) => panic!("Couldn't open {}: {}", filename, why),
-            Ok(file) => file,
-        };
+            Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+            Ok(file) => Ok(file),
+        }?;
 
         let mut jumps = Vec::new();
         let mut jump = [0u8; 32];
@@ -394,11 +363,11 @@ pub mod kangaroo {
     /// - `id`:     thread ID
     /// - `n`:      number of threads
     fn hunter(
-        res: Arc<Mutex<Scalar>>,
-        table: Table,
-        jumps: Jumps,
-        g: Gt,
-        h: Gt,
+        res: &Arc<Mutex<Scalar>>,
+        table: &Table,
+        jumps: &Jumps,
+        g: &Gt,
+        h: &Gt,
         d: usize,
         id: u64,
         n: u64,
@@ -410,7 +379,7 @@ pub mod kangaroo {
             let P0 = h + g * y0;
 
             // let it run
-            let (P, y) = adding_walk(&jumps, &g, P0, y0, d);
+            let (P, y) = adding_walk(jumps, g, P0, y0, d);
 
             // check the traps
             match table.get(&hash(&P)) {
@@ -449,11 +418,11 @@ pub mod kangaroo {
         let n = n as u64;
 
         for i in 0..n {
-            let (res, h) = (res.clone(), h.clone());
+            let (res, h) = (res.clone(), *h);
             let (jumps, table) = (jumps.to_vec(), table.clone());
 
             handles.push(thread::spawn(move || {
-                hunter(res, table, jumps, g, h, d, i, n);
+                hunter(&res, &table, &jumps, &g, &h, d, i, n);
             }));
         }
 
@@ -463,5 +432,33 @@ pub mod kangaroo {
 
         let res = *res.lock().unwrap();
         res
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn test_is_distinguished() -> eyre::Result<()> {
+            // replace the `Gt` point by a bit-string for easier testing
+            fn is_distinguished_stubbed(b: &[u8], d: usize) -> bool {
+                for bit in 0..d {
+                    if (b[b.len() - (bit / 8) - 1] >> (bit % 8)) % 2 == 1 {
+                        return false;
+                    }
+                }
+                true
+            }
+
+            eyre::ensure!(
+                is_distinguished_stubbed(&0b0110101101010000u16.to_be_bytes(), 4),
+                "Wrong decision"
+            );
+
+            eyre::ensure!(
+                !is_distinguished_stubbed(&0b0110101101010000u16.to_be_bytes(), 5),
+                "Wrong decision"
+            );
+
+            Ok(())
+        }
     }
 }
