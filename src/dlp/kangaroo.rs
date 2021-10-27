@@ -13,7 +13,8 @@ use std::thread;
 type Hash = [u8; 32];
 /// Hash table used to store precomputed distinguished points.
 type Table = HashMap<Hash, Scalar>;
-
+/// Intermediate hash table to store precomputed distinguished points alongwith
+/// with their number of ancestors and the average walk length
 type IntermediateTable = HashMap<Hash, (Scalar, usize, f32)>;
 
 /// Hash function for a point on `Gt`
@@ -85,21 +86,21 @@ fn get_distinguishing_parameter(walk_size: usize) -> usize {
 /// - `table`:      shared table on which to work
 /// - `jumps`:      random jumps
 /// - `G`:          `Gt` generator
-/// - `l`:          interval size
+/// - `dlp_size`:   interval size
 /// - `table_size`: table size
 /// - `d`:          distinguishing parameter
 fn table_worker(
     table: &Arc<Mutex<Table>>,
     jumps: &[Scalar],
     G: &Gt,
-    l: u64,
+    dlp_size: u64,
     table_size: usize,
     d: usize,
 ) -> Result<()> {
     let mut len = table.lock().unwrap().len();
     while len < table_size {
         // raise a new kangaroo
-        let y0 = tools::bounded_random_scalar(1, l)?;
+        let y0 = tools::bounded_random_scalar(1, dlp_size)?;
 
         // let it run
         let (P, y, _) = adding_walk(jumps, G, G * y0, y0, d);
@@ -109,84 +110,87 @@ fn table_worker(
         len = table.len();
         match table.insert(hash(&P), y) {
             Some(_) => println!("I: value already in table"),
-            None => println!("Table completion: {}/{}", len, table_size),
+            None => println!("D: table completion: {}/{}", len, table_size),
         }
     }
     Ok(())
 }
 
-/// Worker generating a table with the given parameters.
-/// - `table`:  shared table on which to work
-/// - `jumps`:  random jumps
-/// - `g`:      `Gt` generator
-/// - `l`:      interval size
-/// - `t`:      table size
-/// - `d`:      distinguishing parameter
+/// Worker generating an intermediate table with the given parameters.
+/// - `table`:      shared table on which to work
+/// - `jumps`:      random jumps
+/// - `G`:          `Gt` generator
+/// - `dlp_size`:   DLP size
+/// - `table_size`: table size
+/// - `d`:          distinguishing parameter
+/// - `id_thread`:  thread ID
+/// - `nb_thread`:  total number of threads
 fn intermediate_table_worker(
     table: &Arc<Mutex<IntermediateTable>>,
     jumps: &[Scalar],
-    g: &Gt,
-    l: u64,
-    t: usize,
+    G: &Gt,
+    dlp_size: u64,
+    table_size: usize,
     d: usize,
-    id: usize,
+    id_thread: usize,
     nb_thread: usize,
 ) -> Result<()> {
-    let mut step = id;
-    while step < t {
+    let mut step = id_thread;
+    while step < table_size {
         // raise a new kangaroo
-        let y = tools::bounded_random_scalar(1, l)?;
+        let y = tools::bounded_random_scalar(1, dlp_size)?;
 
         // let it run
-        let (P, coeff, length) = adding_walk(jumps, g, g * y, y, d);
-        println!("Build table {}/{}, W = {}", step, t, length);
+        let (P, coeff, length) = adding_walk(jumps, G, G * y, y, d);
 
         // set the trap, update the table
         let mut table = table.lock().unwrap();
         let (count, avg_walk_size);
         match table.get(&hash(&P)) {
-            Some((_, n, w)) => {
-                avg_walk_size = (((*n as f32) * w) + length as f32) / ((n + 1) as f32);
-                count = *n + 1;
+            Some(&(_, n, w)) => {
+                avg_walk_size = (((n as f32) * w) + length as f32) / ((n + 1) as f32);
+                count = n + 1;
                 println!("I: Distinguished point already in table, updating the number of ancestors ({})", count + 1);
             }
             None => {
-                count = 0;
+                count = 1;
                 avg_walk_size = length as f32;
             }
         }
-        table.insert(hash(&P), (coeff, count, avg_walk_size as f32));
+        table.insert(hash(&P), (coeff, count, avg_walk_size));
         step += nb_thread;
+        println!("D: build table {}/{}, W = {}", step, table_size, length);
     }
     Ok(())
 }
 
-/// Generate a table of `T` precomputed distinguised points, along with their DLP.
-/// - `l`:      size of the interval
-/// - `t`:      table size
-/// - `w`:      walks size
-/// - `n`:      number of threads
-/// - `jumps`:  list of random points fot the adding walk
+/// Generate a table of `table_size` precomputed distinguished points, alongwith
+/// with their DLP, number of ancestors and average walk length.
+/// - `dlp_size`:   size of the interval
+/// - `table_size`: table size
+/// - `walk_size`:  walks size
+/// - `nb_thread`:  number of threads
+/// - `jumps`:      list of random points fot the adding walk
 pub fn gen_intermediate_table(
-    l: u64,
-    t: usize,
-    w: usize,
-    n: usize,
+    dlp_size: u64,
+    table_size: usize,
+    walk_size: usize,
+    nb_thread: usize,
     jumps: &[Scalar],
 ) -> Result<IntermediateTable> {
     // `Gt` group generator
-    let g = pairing(&G1Affine::generator(), &G2Affine::generator());
-    let d = get_distinguishing_parameter(w);
+    let G = pairing(&G1Affine::generator(), &G2Affine::generator());
+    let d = get_distinguishing_parameter(walk_size);
     let mut handles = Vec::new();
 
     // precomputed table
-    let table = Arc::new(Mutex::new(HashMap::with_capacity(t)));
+    let table = Arc::new(Mutex::new(HashMap::with_capacity(table_size)));
 
-    for id in 0..n {
+    for id in 0..nb_thread {
         let (jumps, table) = (jumps.to_vec(), table.clone());
 
         handles.push(thread::spawn(move || {
-            intermediate_table_worker(&table, &jumps, &g, l, t, d, id, n)
+            intermediate_table_worker(&table, &jumps, &G, dlp_size, table_size, d, id, nb_thread)
         }));
     }
 
@@ -194,70 +198,134 @@ pub fn gen_intermediate_table(
         handle.join().unwrap()?;
     }
 
-    Ok(table.clone().lock().unwrap().clone())
+    let table = table.lock().unwrap().clone();
+    Ok(table)
 }
 
-/// Reorder the given vector of `(T, i)` elements given `i`.
-/// Return the vector of `T` elements.
+/// Reorder the given vector of `((T, U), i)` elements given `i`.
+/// Return the vector of `(T, U)` elements.
 /// - `v`:  vector to sort
 fn reorder<T: Clone, U: Clone>(v: &mut [((T, U), usize)]) -> Vec<(T, U)> {
     v.sort_by_key(|vi| vi.1);
     v.iter().map(|vi| vi.0.clone()).collect()
 }
 
-fn extract_table(table: IntermediateTable, t: usize) -> Result<Table> {
-    println!("I: extract table.");
+/// Sort the given intermediate table into a bucket list using the number of point ancestors.
+/// - `table`:  intermediate table
+fn fill_buckets(table: IntermediateTable) -> Vec<Vec<((Hash, Scalar), usize)>> {
     // store all the points inside buckets
     let mut buckets = Vec::new();
     for (k, (s, count, length)) in table {
         // add more buckets if needed
-        if count >= buckets.len() {
-            buckets.append(&mut vec![Vec::new(); count - buckets.len() + 1]);
+        if count > buckets.len() {
+            buckets.append(&mut vec![Vec::new(); count - buckets.len()]);
         }
-        // store `(Y, y)` in the bucket given by `count`
-        buckets[count].push(((k, s), length.floor() as usize));
+        // store `((Y, y), w)` in the bucket given by `count`
+        buckets[count - 1].push(((k, s), length.floor() as usize));
     }
+    buckets
+}
 
+/// Generate the final improved table with the given size from the given bucket list.
+/// - `buckets`:    bucket list
+/// - `table_size`: finale improved table size
+fn get_table_from_buckets(
+    buckets: &mut [Vec<((Hash, Scalar), usize)>],
+    table_size: usize,
+) -> (Table, Vec<usize>) {
     // use the `t` most visited points to build the hash table
     let mut table = HashMap::new();
     let mut count = buckets.len();
-    while table.len() < t && count > 0 {
+    let mut ancestors = Vec::with_capacity(table_size);
+    while table.len() < table_size && count > 0 {
+        // decrementing the count first allows using it to index the list
         count -= 1;
         // sort the points by average walk length to keep the sortest walks
         for (P, y) in reorder(&mut buckets[count]) {
-            if table.len() < t {
+            if table.len() < table_size {
                 println!(
-                    "I: picking a distinguished point with {} ancestors.",
+                    "D: picking a distinguished point with {} ancestors.",
                     count + 1
                 );
                 table.insert(P, y);
+                ancestors.push(count);
             }
         }
     }
-
-    println!("Table size: {}", table.len());
-    Ok(table)
+    (table, ancestors)
 }
 
+// Display information about selected points' ancestors.
+// - `ancestors`:   list of number of ancestors
+fn display_ancestors_info(ancestors: &[usize]) {
+    let mut n_ancestors_list = vec![0; ancestors[0] + 1];
+    for &n_ancestors in ancestors {
+        n_ancestors_list[n_ancestors] += 1;
+    }
+
+    for (count, &n_ancestors) in n_ancestors_list.iter().rev().enumerate() {
+        if n_ancestors != 0 {
+            println!(
+                "I: {:.0}% points chosen with {} ancestors ({}).",
+                100. * (n_ancestors as f32) / (ancestors.len() as f32),
+                n_ancestors_list.len() - count,
+                n_ancestors
+            );
+        }
+    }
+}
+
+/// Extract the final imroved table from the given intermediate table.
+/// - `intermediate_table`: intermediate table
+/// - `table_size`:         final table length
+fn extract_table(intermediate_table: IntermediateTable, table_size: usize) -> Table {
+    println!("N: extract table.");
+    let mut buckets = fill_buckets(intermediate_table);
+    let (table, ancestors) = get_table_from_buckets(&mut buckets, table_size);
+    println!("I: table size: {}", table.len());
+    display_ancestors_info(&ancestors);
+    table
+}
+
+/// Generate an improved table with the given parameters.
+/// - `dlp_size`:       DLP size
+/// - `table_size`:     table size
+/// - `walk_size`:      average walk size
+/// - `repetitions`:    repetition factor for the intermediate table
+/// - `nb_thread`:     number of threads
+/// - `jumps`:          random jumps
 pub fn gen_improved_table(
-    l: u64,
-    t: usize,
-    w: usize,
-    u: usize,
-    n: usize,
+    dlp_size: u64,
+    table_size: usize,
+    walk_size: usize,
+    repetitions: usize,
+    nb_thread: usize,
     jumps: &[Scalar],
 ) -> Result<Table> {
-    extract_table(gen_intermediate_table(l, t * u, w, n, jumps)?, t)
+    println!(
+        "N: computing table with parameters L = {}, T = {}, W = {}, U = {}",
+        dlp_size, table_size, walk_size, repetitions
+    );
+    Ok(extract_table(
+        gen_intermediate_table(
+            dlp_size,
+            table_size * repetitions,
+            walk_size,
+            nb_thread,
+            jumps,
+        )?,
+        table_size,
+    ))
 }
 
-/// Generate a table of `T` precomputed distinguised points, along with their DLP.
-/// - `l`:          size of the interval
+/// Generate a table of `T` precomputed distinguished points, along with their DLP.
+/// - `dlp_size`:          size of the interval
 /// - `table_size`: table size
 /// - `walk_size`:  walks size
 /// - `nb_thread`:  number of threads
 /// - `jumps`:      list of random points fot the adding walk
 pub fn gen_table(
-    l: u64,
+    dlp_size: u64,
     table_size: usize,
     walk_size: usize,
     nb_thread: usize,
@@ -274,7 +342,7 @@ pub fn gen_table(
     for _ in 0..nb_thread {
         let (jumps, table) = (jumps.to_vec(), table.clone());
         handles.push(thread::spawn(move || {
-            table_worker(&table, &jumps, &g, l, table_size, d)
+            table_worker(&table, &jumps, &g, dlp_size, table_size, d)
         }));
     }
 
@@ -335,7 +403,7 @@ pub fn read_table(filename: &Path) -> Result<Table> {
         if s.is_some().into() {
             table.insert(key, s.unwrap());
         } else {
-            eyre::eyre!("Error while converting read bytes into scalar! {:?}", value);
+            eyre::eyre!("Couldn't convert read bytes into scalar! {:?}", value);
         }
     }
 
@@ -345,11 +413,11 @@ pub fn read_table(filename: &Path) -> Result<Table> {
 /// Generate `k` random jumps. The mean of their indices should be
 /// comparable with `sqrt(l)`, where `l` is the size of the interval on
 /// which the DLP is solved.
-/// - `l`:  interval size
-/// - `k`:  number of points to generate
-pub fn gen_jumps(l: u64, k: usize) -> Result<Vec<Scalar>> {
+/// - `dlp_size`:   interval size
+/// - `k`:          number of points to generate
+pub fn gen_jumps(dlp_size: u64, k: usize) -> Result<Vec<Scalar>> {
     // uniform distribution in `[0, 2*sqrt(l)]`
-    let max = 2 * (l as f64).sqrt() as u64;
+    let max = 2 * (dlp_size as f64).sqrt() as u64;
     (0..k)
         .map(|_| tools::bounded_random_scalar(1, max))
         .collect()
@@ -392,7 +460,7 @@ pub fn read_jumps(filename: &Path) -> Result<Vec<Scalar>> {
 
         eyre::ensure!(
             s != Scalar::zero(),
-            "Error while converting read bytes into scalar! {:?}",
+            "Couldn't convert read bytes into scalar! {:?}",
             jump
         );
 
