@@ -39,9 +39,16 @@ pub fn get_time_dlp(m: u64) -> Result<u128> {
     Ok(timer.as_millis())
 }
 
-fn get_precomputations(l: u64, t: usize, u: usize, k: usize, w: usize, n: usize) -> Result<(Jumps, Table)> {
-    let table_filename = "benches/table";
-    let jumps_filename = "benches/jumps";
+fn get_precomputations(
+    l: u64,
+    t: usize,
+    u: usize,
+    k: usize,
+    w: usize,
+    n: usize,
+) -> Result<(Jumps, Table)> {
+    let table_filename: &Path = &Path::new("benches").join("table");
+    let jumps_filename: &Path = &Path::new("benches").join("jumps");
 
     if Path::new(table_filename).exists() && Path::new(jumps_filename).exists() {
         Ok((

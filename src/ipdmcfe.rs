@@ -37,7 +37,7 @@ pub struct DecryptionKey {
 /// - `pk_list`:    DSum public keys from all clients
 fn t_gen(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> TMat<dsum::CypherText> {
     let mut res = [Default::default(); 4];
-    for (i, res) in  res.iter_mut().enumerate() {
+    for (i, res) in res.iter_mut().enumerate() {
         let mut l = Label::from_bytes("Setup".as_bytes());
         l.aggregate(&(i as u8).to_be_bytes());
         *res = dsum::encode(&Scalar::zero(), ski, pk_list, &l);

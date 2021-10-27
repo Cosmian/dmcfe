@@ -7,6 +7,7 @@ use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, Gt, Scalar};
 use dmcfe::dlp;
 use eyre::Result;
 use rand::Rng;
+use std::path::Path;
 
 #[test]
 fn test_bsbg() -> Result<()> {
@@ -40,8 +41,8 @@ fn test_read_write() -> Result<()> {
     const N: usize = 1;
 
     // table names
-    let table_filename = "table";
-    let jumps_filename = "jumps";
+    let table_filename: &Path = &Path::new("table");
+    let jumps_filename: &Path = &Path::new("jumps");
 
     // get the random jumps
     let jumps = dlp::kangaroo::gen_jumps(L, K)?;

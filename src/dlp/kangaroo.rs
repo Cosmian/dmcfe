@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -288,11 +289,11 @@ pub fn gen_table(
 /// Write the given precomputed table to the file with the given name.
 /// - `filename`:   name of the file
 /// - `table`:      precomputed table
-pub fn write_table(filename: &str, table: &Table) -> Result<()> {
+pub fn write_table(filename: &Path, table: &Table) -> Result<()> {
     // Open the path in write-only mode.
     // Erase previous file with the same name.
     let mut file = match File::create(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -313,10 +314,10 @@ pub fn write_table(filename: &str, table: &Table) -> Result<()> {
 
 /// Read the precomputed table from the file with the given name.
 /// - `filename`:   name of the file
-pub fn read_table(filename: &str) -> Result<Table> {
+pub fn read_table(filename: &Path) -> Result<Table> {
     // Open the path in read-only mode
     let mut file = match File::open(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -357,11 +358,11 @@ pub fn gen_jumps(l: u64, k: usize) -> Result<Vec<Scalar>> {
 /// Write the given jumps to the file with the given name.
 /// - `filename`:   name of the file
 /// - `table`:      jumps
-pub fn write_jumps(filename: &str, jumps: &[Scalar]) -> Result<()> {
+pub fn write_jumps(filename: &Path, jumps: &[Scalar]) -> Result<()> {
     // Open the path in write-only mode.
     // Erase previous file with the same name.
     let mut file = match File::create(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -377,10 +378,10 @@ pub fn write_jumps(filename: &str, jumps: &[Scalar]) -> Result<()> {
 
 /// Read the jumps from the file with the given name.
 /// - `filename`:   name of the file
-pub fn read_jumps(filename: &str) -> Result<Vec<Scalar>> {
+pub fn read_jumps(filename: &Path) -> Result<Vec<Scalar>> {
     // Open the path in read-only mode
     let mut file = match File::open(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename, why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
         Ok(file) => Ok(file),
     }?;
 
