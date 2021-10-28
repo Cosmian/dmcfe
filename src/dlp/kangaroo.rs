@@ -3,6 +3,7 @@ use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use eyre::Result;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -13,7 +14,7 @@ use std::thread;
 type Hash = [u8; 32];
 /// Hash table used to store precomputed distinguished points.
 type Table = HashMap<Hash, Scalar>;
-/// Intermediate hash table to store precomputed distinguished points alongwith
+/// Intermediate hash table to store precomputed distinguished points along with
 /// with their number of ancestors and the average walk length
 type IntermediateTable = HashMap<Hash, (Scalar, usize, f32)>;
 
@@ -39,6 +40,7 @@ fn is_distinguished(P: &Gt, d: usize) -> bool {
     // byte representation in big-endian order
     let b: Hash = hash(P);
     for bit in 0..d {
+        // check that bit is 0
         if (b[b.len() - (bit / 8) - 1] >> (bit % 8)) % 2 == 1 {
             return false;
         }
@@ -65,15 +67,12 @@ fn adding_step(jumps: &[Scalar], P: &mut Gt, y: &mut Scalar, G: &Gt) {
 /// - `d`:      distinguishing parameter
 fn adding_walk(jumps: &[Scalar], G: &Gt, P0: Gt, y0: Scalar, d: usize) -> (Gt, Scalar, usize) {
     let (mut P, mut y, mut count) = (P0, y0, 0);
-    loop {
-        // stop when a distinguished point is found
-        if is_distinguished(&P, d) {
-            return (P, y, count);
-        } else {
-            count += 1;
-            adding_step(jumps, &mut P, &mut y, G);
-        }
+    // stop when a distinguished point is found
+    while !is_distinguished(&P, d) {
+        count += 1;
+        adding_step(jumps, &mut P, &mut y, G);
     }
+    (P, y, count)
 }
 
 /// Compute the distinguishing parameter from W.
@@ -97,7 +96,7 @@ fn table_worker(
     table_size: usize,
     d: usize,
 ) -> Result<()> {
-    let mut len = table.lock().unwrap().len();
+    let mut len = safe_unwrap_lock(table)?.len();
     while len < table_size {
         // raise a new kangaroo
         let y0 = tools::bounded_random_scalar(1, dlp_size)?;
@@ -106,11 +105,12 @@ fn table_worker(
         let (P, y, _) = adding_walk(jumps, G, G * y0, y0, d);
 
         // set the trap
-        let mut table = table.lock().unwrap();
-        len = table.len();
-        match table.insert(hash(&P), y) {
-            Some(_) => println!("I: value already in table"),
-            None => println!("D: table completion: {}/{}", len, table_size),
+        if let Ok(mut table) = table.lock() {
+            len = table.len();
+            match table.insert(hash(&P), y) {
+                Some(_) => println!("I: value already in table"),
+                None => println!("D: table completion: {}/{}", len, table_size),
+            }
         }
     }
     Ok(())
@@ -144,22 +144,23 @@ fn intermediate_table_worker(
         let (P, coeff, length) = adding_walk(jumps, G, G * y, y, d);
 
         // set the trap, update the table
-        let mut table = table.lock().unwrap();
-        let (count, avg_walk_size);
-        match table.get(&hash(&P)) {
-            Some(&(_, n, w)) => {
-                avg_walk_size = (((n as f32) * w) + length as f32) / ((n + 1) as f32);
-                count = n + 1;
-                println!("I: Distinguished point already in table, updating the number of ancestors ({})", count + 1);
-            }
-            None => {
-                count = 1;
-                avg_walk_size = length as f32;
-            }
-        }
-        table.insert(hash(&P), (coeff, count, avg_walk_size));
-        step += nb_thread;
         println!("D: build table {}/{}, W = {}", step, table_size, length);
+        if let Ok(mut table) = table.lock() {
+            let (count, avg_walk_size);
+            match table.get(&hash(&P)) {
+                Some(&(_, n, w)) => {
+                    avg_walk_size = (((n as f32) * w) + length as f32) / ((n + 1) as f32);
+                    count = n + 1;
+                    println!("I: Distinguished point already in table, updating the number of ancestors ({})", count + 1);
+                }
+                None => {
+                    count = 1;
+                    avg_walk_size = length as f32;
+                }
+            }
+            table.insert(hash(&P), (coeff, count, avg_walk_size));
+            step += nb_thread;
+        }
     }
     Ok(())
 }
@@ -181,7 +182,7 @@ pub fn gen_intermediate_table(
     // `Gt` group generator
     let G = pairing(&G1Affine::generator(), &G2Affine::generator());
     let d = get_distinguishing_parameter(walk_size);
-    let mut handles = Vec::new();
+    let mut handles = Vec::with_capacity(nb_thread);
 
     // precomputed table
     let table = Arc::new(Mutex::new(HashMap::with_capacity(table_size)));
@@ -195,10 +196,11 @@ pub fn gen_intermediate_table(
     }
 
     for handle in handles {
-        handle.join().unwrap()?;
+        handle.join()
+            .map_err(|err| eyre::eyre!("Error in worker thread: {:?}", err))??;
     }
 
-    let table = table.lock().unwrap().clone();
+    let table = safe_unwrap_lock(&table)?;
     Ok(table)
 }
 
@@ -234,9 +236,9 @@ fn get_table_from_buckets(
     table_size: usize,
 ) -> (Table, Vec<usize>) {
     // use the `t` most visited points to build the hash table
-    let mut table = HashMap::new();
-    let mut count = buckets.len();
+    let mut table = HashMap::with_capacity(table_size);
     let mut ancestors = Vec::with_capacity(table_size);
+    let mut count = buckets.len();
     while table.len() < table_size && count > 0 {
         // decrementing the count first allows using it to index the list
         count -= 1;
@@ -292,7 +294,7 @@ fn extract_table(intermediate_table: IntermediateTable, table_size: usize) -> Ta
 /// - `table_size`:     table size
 /// - `walk_size`:      average walk size
 /// - `repetitions`:    repetition factor for the intermediate table
-/// - `nb_thread`:     number of threads
+/// - `nb_thread`:      number of threads
 /// - `jumps`:          random jumps
 pub fn gen_improved_table(
     dlp_size: u64,
@@ -306,16 +308,21 @@ pub fn gen_improved_table(
         "N: computing table with parameters L = {}, T = {}, W = {}, U = {}",
         dlp_size, table_size, walk_size, repetitions
     );
-    Ok(extract_table(
-        gen_intermediate_table(
-            dlp_size,
-            table_size * repetitions,
-            walk_size,
-            nb_thread,
-            jumps,
-        )?,
-        table_size,
-    ))
+    let intermediate_table = gen_intermediate_table(
+        dlp_size,
+        table_size * repetitions,
+        walk_size,
+        nb_thread,
+        jumps,
+    )?;
+    write_intermediate_table(
+        &Path::new(&format!(
+            "intermediate_table_{}_{}_{}_{}",
+            dlp_size, table_size, walk_size, repetitions
+        )),
+        &intermediate_table,
+    )?;
+    Ok(extract_table(intermediate_table, table_size))
 }
 
 /// Generate a table of `T` precomputed distinguished points, along with their DLP.
@@ -334,7 +341,7 @@ pub fn gen_table(
     // `Gt` group generator
     let g = pairing(&G1Affine::generator(), &G2Affine::generator());
     let d = get_distinguishing_parameter(walk_size);
-    let mut handles = Vec::new();
+    let mut handles = Vec::with_capacity(nb_thread);
 
     // precomputed table
     let table = Arc::new(Mutex::new(HashMap::with_capacity(table_size)));
@@ -347,21 +354,25 @@ pub fn gen_table(
     }
 
     for handle in handles {
-        handle.join().unwrap()?;
+        handle.join()
+            .map_err(|err| eyre::eyre!("Error in worker thread: {:?}", err))??;
     }
 
-    let table = table.lock().unwrap().clone();
+    let table = safe_unwrap_lock(&table)?;
     Ok(table)
 }
 
 /// Write the given precomputed table to the file with the given name.
 /// - `filename`:   name of the file
 /// - `table`:      precomputed table
-pub fn write_table(filename: &Path, table: &Table) -> Result<()> {
+pub fn write_table<P>(filename: &P, table: &Table) -> Result<()>
+where
+    P: AsRef<Path> + Debug,
+{
     // Open the path in write-only mode.
     // Erase previous file with the same name.
     let mut file = match File::create(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -380,12 +391,106 @@ pub fn write_table(filename: &Path, table: &Table) -> Result<()> {
     Ok(())
 }
 
-/// Read the precomputed table from the file with the given name.
+/// Write the given precomputed intermediate table to the file with the given name.
 /// - `filename`:   name of the file
-pub fn read_table(filename: &Path) -> Result<Table> {
+/// - `table`:      precomputed intermediate table
+pub fn write_intermediate_table<P>(filename: &P, table: &IntermediateTable) -> Result<()>
+where
+    P: AsRef<Path> + Debug,
+{
+    // Open the path in write-only mode.
+    // Erase previous file with the same name.
+    let mut file = match File::create(filename) {
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
+        Ok(file) => Ok(file),
+    }?;
+
+    for (key, value) in table {
+        eyre::ensure!(
+            key.len() == file.write(key)?,
+            "Couldn't write all bytes for the hash table key: {:?}",
+            key
+        );
+        eyre::ensure!(
+            32 == file.write(&value.0.to_bytes())?,
+            "Couldn't write all bytes for the hash table value: {:?}",
+            value.0
+        );
+        eyre::ensure!(
+            8 == file.write(&(value.1 as u64).to_be_bytes())?,
+            "Couldn't write all bytes for the hash table value: {:?}",
+            value.1
+        );
+        eyre::ensure!(
+            4 == file.write(&value.2.to_be_bytes())?,
+            "Couldn't write all bytes for the hash table value: {:?}",
+            value.2
+        );
+    }
+    Ok(())
+}
+
+/// Read the precomputed intermediate table from the file with the given name.
+/// - `filename`:   name of the file
+pub fn read_intermediate_table<P>(filename: &P) -> Result<IntermediateTable>
+where
+    P: AsRef<Path> + Debug,
+{
     // Open the path in read-only mode
     let mut file = match File::open(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
+        Ok(file) => Ok(file),
+    }?;
+
+    let mut table = HashMap::new();
+    let (mut key, mut value) = ([0u8; 32], ([0u8; 32], [0u8; 8], [0u8; 4]));
+
+    while key.len() == file.read(&mut key)? {
+        eyre::ensure!(
+            value.0.len() == file.read(&mut value.0)?,
+            "Couldn't read all bytes of the value corresponding to the key: {:?}",
+            key
+        );
+
+        eyre::ensure!(
+            value.1.len() == file.read(&mut value.1)?,
+            "Couldn't read all bytes of the value corresponding to the key: {:?}",
+            key
+        );
+
+        eyre::ensure!(
+            value.2.len() == file.read(&mut value.2)?,
+            "Couldn't read all bytes of the value corresponding to the key: {:?}",
+            key
+        );
+
+        let s = Scalar::from_bytes(&value.0);
+        if s.is_some().into() {
+            table.insert(
+                key,
+                (
+                    s.unwrap(),
+                    u64::from_be_bytes(value.1) as usize,
+                    f32::from_be_bytes(value.2),
+                ),
+            );
+        } else {
+            eyre::eyre!("Couldn't convert read bytes into scalar! {:?}", value);
+        }
+    }
+
+    Ok(table)
+}
+
+/// Read the precomputed table from the file with the given name.
+/// - `filename`:   name of the file
+pub fn read_table<P>(filename: &P) -> Result<Table>
+where
+    P: AsRef<Path> + Debug,
+{
+    // Open the path in read-only mode
+    let mut file = match File::open(filename) {
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -426,11 +531,14 @@ pub fn gen_jumps(dlp_size: u64, k: usize) -> Result<Vec<Scalar>> {
 /// Write the given jumps to the file with the given name.
 /// - `filename`:   name of the file
 /// - `table`:      jumps
-pub fn write_jumps(filename: &Path, jumps: &[Scalar]) -> Result<()> {
+pub fn write_jumps<P>(filename: &P, jumps: &[Scalar]) -> Result<()>
+where
+    P: AsRef<Path> + Debug,
+{
     // Open the path in write-only mode.
     // Erase previous file with the same name.
     let mut file = match File::create(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
         Ok(file) => Ok(file),
     }?;
 
@@ -446,25 +554,25 @@ pub fn write_jumps(filename: &Path, jumps: &[Scalar]) -> Result<()> {
 
 /// Read the jumps from the file with the given name.
 /// - `filename`:   name of the file
-pub fn read_jumps(filename: &Path) -> Result<Vec<Scalar>> {
+pub fn read_jumps<P>(filename: &P) -> Result<Vec<Scalar>>
+where
+    P: AsRef<Path> + Debug,
+{
     // Open the path in read-only mode
     let mut file = match File::open(filename) {
-        Err(why) => Err(eyre::eyre!("Couldn't open {}: {}", filename.display(), why)),
+        Err(why) => Err(eyre::eyre!("Couldn't open {:?}: {}", filename, why)),
         Ok(file) => Ok(file),
     }?;
 
     let mut jumps = Vec::new();
     let mut jump = [0u8; 32];
     while jump.len() == file.read(&mut jump)? {
-        let s = Scalar::from_bytes(&jump).unwrap_or(Scalar::zero());
-
-        eyre::ensure!(
-            s != Scalar::zero(),
-            "Couldn't convert read bytes into scalar! {:?}",
-            jump
-        );
-
-        jumps.push(s);
+        let s = Scalar::from_bytes(&jump);
+        if s.is_some().into() {
+            jumps.push(s.unwrap());
+        } else {
+            eyre::eyre!("Couldn't convert read bytes into scalar! {:?}", jump);
+        }
     }
 
     Ok(jumps)
@@ -488,9 +596,9 @@ fn hunter(
     d: usize,
     id: u64,
     nb_thread: u64,
-) {
+) -> Result<()> {
     let mut step = id;
-    while Scalar::zero() == *res.lock().unwrap() {
+    while Scalar::zero() == safe_unwrap_lock(res)? {
         // wild kangaroo
         let y0 = Scalar::from_raw([step, 0, 0, 0]);
         let P0 = H + G * y0;
@@ -503,7 +611,9 @@ fn hunter(
             Some(&x) => {
                 // check against false positive match due to the hash
                 if G * x == H + G * y {
-                    *res.lock().unwrap() = x - y;
+                    if let Ok(mut res) = res.lock() {
+                        *res = x - y;
+                    }
                 }
             }
             None => println!("I: value not in the table."),
@@ -511,6 +621,7 @@ fn hunter(
 
         step += nb_thread;
     }
+    Ok(())
 }
 
 /// Solve the DLP using the kangaroo method.
@@ -525,7 +636,7 @@ pub fn solve(
     H: &Gt,
     walk_size: usize,
     nb_thread: usize,
-) -> Scalar {
+) -> Result<Scalar> {
     // `Gt` group generator
     let G = pairing(&G1Affine::generator(), &G2Affine::generator());
     let d = get_distinguishing_parameter(walk_size);
@@ -533,7 +644,7 @@ pub fn solve(
 
     // assert 0 is not the solution of the DLP
     if *H == G * Scalar::zero() {
-        return Scalar::zero();
+        return Ok(Scalar::zero());
     }
 
     // use 0 as neutral value
@@ -545,16 +656,27 @@ pub fn solve(
         let (jumps, table) = (jumps.to_vec(), table.clone());
 
         handles.push(thread::spawn(move || {
-            hunter(&res, &table, &jumps, &G, &H, d, id, nb_thread);
+            hunter(&res, &table, &jumps, &G, &H, d, id, nb_thread)
         }));
     }
 
     for handle in handles {
-        handle.join().unwrap();
+        handle
+            .join()
+            .map_err(|err| eyre::eyre!("Error in hunter thread: {:?}", err))??;
     }
 
-    let res = *res.lock().unwrap();
-    res
+    safe_unwrap_lock(&res)
+}
+
+fn safe_unwrap_lock<T: Default + Clone>(mutex: &Arc<Mutex<T>>) -> Result<T> {
+    let mut s = Default::default();
+    if let Ok(res) = mutex.lock() {
+        s = res.clone();
+    } else {
+        eyre::eyre!("Could not unwrap final result!");
+    }
+    Ok(s)
 }
 
 #[cfg(test)]

@@ -41,8 +41,8 @@ fn test_read_write() -> Result<()> {
     const N: usize = 1;
 
     // table names
-    let table_filename: &Path = &Path::new("table");
-    let jumps_filename: &Path = &Path::new("jumps");
+    let table_filename = Path::new("table");
+    let jumps_filename = Path::new("jumps");
 
     // get the random jumps
     let jumps = dlp::kangaroo::gen_jumps(L, K)?;
@@ -50,16 +50,16 @@ fn test_read_write() -> Result<()> {
     let table = dlp::kangaroo::gen_table(L, T, W, N, &jumps)?;
 
     // write the table
-    dlp::kangaroo::write_jumps(jumps_filename, &jumps)?;
-    dlp::kangaroo::write_table(table_filename, &table)?;
+    dlp::kangaroo::write_jumps(&jumps_filename, &jumps)?;
+    dlp::kangaroo::write_table(&table_filename, &table)?;
 
     // read the tables and check against the original ones
     eyre::ensure!(
-        dlp::kangaroo::read_table(table_filename)? == table,
+        dlp::kangaroo::read_table(&table_filename)? == table,
         "Read table is different from the one written!"
     );
     eyre::ensure!(
-        dlp::kangaroo::read_jumps(jumps_filename)? == jumps,
+        dlp::kangaroo::read_jumps(&jumps_filename)? == jumps,
         "Read table is different from the one written!"
     );
 
@@ -91,7 +91,7 @@ fn test_kangaroo() -> Result<()> {
 
     // find the DLP solution
     eyre::ensure!(
-        h == dlp::kangaroo::solve(&table, &jumps, &H, W, N),
+        h == dlp::kangaroo::solve(&table, &jumps, &H, W, N)?,
         "Wrong DLP solution!"
     );
     Ok(())

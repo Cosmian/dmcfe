@@ -47,20 +47,20 @@ fn get_precomputations(
     w: usize,
     n: usize,
 ) -> Result<(Jumps, Table)> {
-    let table_filename: &Path = &Path::new("benches").join("table");
-    let jumps_filename: &Path = &Path::new("benches").join("jumps");
+    let table_filename = Path::new("benches").join("table");
+    let jumps_filename = Path::new("benches").join("jumps");
 
-    if Path::new(table_filename).exists() && Path::new(jumps_filename).exists() {
+    if table_filename.exists() && jumps_filename.exists() {
         Ok((
-            dlp::kangaroo::read_jumps(jumps_filename)?,
-            dlp::kangaroo::read_table(table_filename)?,
+            dlp::kangaroo::read_jumps(&jumps_filename)?,
+            dlp::kangaroo::read_table(&table_filename)?,
         ))
     } else {
         let jumps = dlp::kangaroo::gen_jumps(l, k)?;
         let table = dlp::kangaroo::gen_improved_table(l, t, w, u, n, &jumps)?;
         // write tables for futur uses
-        dlp::kangaroo::write_jumps(jumps_filename, &jumps)?;
-        dlp::kangaroo::write_table(table_filename, &table)?;
+        dlp::kangaroo::write_jumps(&jumps_filename, &jumps)?;
+        dlp::kangaroo::write_table(&table_filename, &table)?;
         Ok((jumps, table))
     }
 }
