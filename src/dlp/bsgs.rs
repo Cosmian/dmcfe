@@ -43,12 +43,7 @@ fn precomputation(m: u32) -> Result<Table> {
 /// - `Q`:      inverse of `g^m`
 /// - `n`:      the number of iterations
 /// - `pairs`:  hash table containg the precomputed values
-fn iterate(
-    P: &G1Projective,
-    Q: &G1Projective,
-    n: u32,
-    pairs: &Table,
-) -> Option<(u32, u32)> {
+fn iterate(P: &G1Projective, Q: &G1Projective, n: u32, pairs: &Table) -> Option<(u32, u32)> {
     let mut res = None;
     let mut giant_step = 0;
     let mut Q_k = G1Projective::identity();
