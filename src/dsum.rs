@@ -1,4 +1,4 @@
-use crate::{label::Label, tools};
+use crate::{tools, types::Label};
 use bls12_381::{G1Projective, G2Projective, Scalar};
 use std::ops::{Deref, Mul};
 

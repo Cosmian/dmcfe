@@ -1,4 +1,4 @@
-use crate::{ipfe, label::Label, tools, types};
+use crate::{ipfe, tools, types};
 use bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
@@ -49,7 +49,7 @@ pub fn setup(m: usize) -> PrivateKey {
 /// - `eki`:    client encryption key
 /// - `xi`:     client contribution
 /// - `l`:      label
-pub fn encrypt(eki: &PrivateKey, xi: &[Scalar], label: &Label) -> Result<Vec<CypherText>> {
+pub fn encrypt(eki: &PrivateKey, xi: &[Scalar], label: &types::Label) -> Result<Vec<CypherText>> {
     let (p1, p2) = tools::double_hash_to_curve_in_g1(label.as_ref());
     let R1 = tools::mat_mul(&eki.s, &[p1, p2])?;
     let ci = xi
@@ -105,7 +105,7 @@ impl<'a> std::iter::FromIterator<&'a CypherText> for Vec<G1Projective> {
 /// - `C`:  the cyphertexts
 /// - `dk`: the decryption key
 /// - `l`:  the label
-pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &Label) -> G1Projective {
+pub fn decrypt(C: &[Vec<CypherText>], dk: &DecryptionKey, label: &types::Label) -> G1Projective {
     let dl = C
         .iter()
         .zip(dk.y.iter())

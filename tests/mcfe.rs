@@ -9,7 +9,7 @@
 
 #![allow(non_snake_case)]
 use bls12_381::{G1Projective, Scalar};
-use dmcfe::{ipmcfe, label::Label};
+use dmcfe::{ipmcfe, types::Label};
 use eyre::Result;
 use rand::Rng;
 use std::sync::mpsc;

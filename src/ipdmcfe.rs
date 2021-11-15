@@ -1,8 +1,6 @@
 use crate::{
-    dsum,
-    label::Label,
-    tools,
-    types::{DVec, TMat},
+    dsum, tools,
+    types::{DVec, Label, TMat},
 };
 use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 
