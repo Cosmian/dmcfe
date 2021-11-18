@@ -2,9 +2,8 @@
 
 mod bus;
 
-use bus::{Bus, BusTx};
-
 use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
+use bus::{Bus, BusTx};
 use dmcfe::{dsum, ipdmcfe, label::Label};
 use eyre::Result;
 use rand::Rng;
@@ -13,12 +12,12 @@ use std::thread;
 /// Number of decryption keys asked by the user
 const NB_DK: u8 = 2;
 
-/// structure containing all the buses used for the simulation
+/// Structure containing all the buses used for the simulation
 /// - `n`:  number of bus clients
-/// - `yi`: decryption function components channel
-/// - `pk`: public key bus channel
-/// - `dk`: partial decryption key bus channel
-/// - `ci`: cyphertext bus channel
+/// - `yi`: channel for decryption function components
+/// - `pk`: channel for public keys
+/// - `dk`: channel for partial decryption keys
+/// - `ci`: channel for cyphertexts
 struct SimuBus {
     n: usize,
     yi: Bus<Scalar>,
@@ -62,10 +61,10 @@ impl SimuBus {
 
 /// Bus transmission channels used in the simulation
 /// - `n`:  number of bus clients
-/// - `yi`: decryption function components channel
-/// - `pk`: public key bus channel
-/// - `dk`: partial decryption key bus channel
-/// - `ci`: cyphertext bus channel
+/// - `yi`: channel for decryption function components
+/// - `pk`: channel for public keys
+/// - `dk`: channel for partial decryption keys
+/// - `ci`: channel for cyphertexts
 #[derive(Clone)]
 struct SimuTx {
     n: usize,
@@ -86,7 +85,7 @@ fn random_scalar() -> Scalar {
 }
 
 /// Reorder the given vector of `(T, i)` elements given `i`.
-/// Return the vector of `T` elements.
+/// Return the ordered vector of `T` elements.
 /// - `v`:  vector to sort
 fn reorder<T: Clone>(v: &mut [(T, usize)]) -> Vec<T> {
     v.sort_by_key(|vi| vi.1);
@@ -207,6 +206,8 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
             .map_err(|err| eyre::eyre!("Error while getting the cyphertexts: {:?}", err))??,
     );
 
+    // Check all cyphertexts are encrypted using the same label. This check is
+    // optional, cyphertexts using different labels lead to an incorrect result
     let (c, l) = check_labels(&c)?;
 
     // Decrypt the set of cyphertexts with each decryption key.
@@ -220,13 +221,10 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
         .collect())
 }
 
-/// Simulate a complete MCFE encryption and decryption process. The encryption
-/// of `x`, a given `(m,n)` matrix, for a given label `l` is done by `n` clients
-/// with `m contributions. The decryption is done by another client who gathers
-/// the partial encription keys and cyphertexts and compute the complete
-/// decryption key.
+/// Simulate a complete DMCFE encryption and decryption process. The encryption
+/// of `x` for a given label `l` is done by `n` clients. The decryption is done
+/// by the user. He gathers the cyphertexts and asks for decryption keys.
 /// - `n`:  number of clients
-/// It returns the result of the MCFE in G1.
 fn simulation(n: usize) -> Result<()> {
     // open the bus
     let bus = SimuBus::new(n + 1);
@@ -272,9 +270,7 @@ fn simulation(n: usize) -> Result<()> {
         )
     }
 
-    bus.close()?;
-
-    Ok(())
+    bus.close()
 }
 
 #[test]
