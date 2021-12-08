@@ -1,5 +1,5 @@
 use crate::tools;
-use bls12_381::{G1Projective, Scalar};
+use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 use std::time::SystemTime;
 use std::{

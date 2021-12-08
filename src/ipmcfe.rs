@@ -1,5 +1,5 @@
 use crate::{ipfe, tools, types};
-use bls12_381::{G1Projective, Scalar};
+use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 
 /// MCFE cyphertext type

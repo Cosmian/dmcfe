@@ -2,7 +2,7 @@ use crate::{
     dsum, tools,
     types::{DVec, Label, TMat},
 };
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
+use cosmian_bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 
 /// DMCFE cyphertext type
 #[derive(Clone, Copy)]

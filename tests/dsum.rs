@@ -2,7 +2,7 @@
 
 mod bus;
 
-use bls12_381::Scalar;
+use cosmian_bls12_381::Scalar;
 use dmcfe::{dsum, types::Label};
 use eyre::Result;
 use rand::Rng;

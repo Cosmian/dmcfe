@@ -3,7 +3,7 @@
 //! Introduction about the IPFE algorithnm.
 
 #![allow(non_snake_case)]
-use bls12_381::{G1Projective, Scalar};
+use cosmian_bls12_381::{G1Projective, Scalar};
 use dmcfe::ipfe;
 use eyre::Result;
 use rand::Rng;

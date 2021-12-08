@@ -2,8 +2,8 @@
 
 mod bus;
 
-use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use bus::{Bus, BusTx};
+use cosmian_bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use dmcfe::{dsum, ipdmcfe, types::Label};
 use eyre::Result;
 use rand::Rng;
