@@ -168,7 +168,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
     // the thread data `xi` to check the final result
     for _ in 0..NB_DK {
         let y = bus::wait_n(&tx.yi, tx.n - 1, id)?;
-        let dki = ipdmcfe::dkey_gen_share(&ski, &y[id], &y);
+        let dki = ipdmcfe::dkey_gen_share(id, &ski, &y);
         bus::unicast(&tx.dk, tx.n - 1, dki)?;
     }
 
