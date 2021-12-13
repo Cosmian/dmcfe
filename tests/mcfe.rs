@@ -8,8 +8,8 @@
 //! In order to simulate the different parties, threads will be used.
 
 #![allow(non_snake_case)]
-use bls12_381::{G1Projective, Scalar};
-use dmcfe::{ipmcfe, label::Label};
+use cosmian_bls12_381::{G1Projective, Scalar};
+use dmcfe::{ipmcfe, types::Label};
 use eyre::Result;
 use rand::Rng;
 use std::sync::mpsc;

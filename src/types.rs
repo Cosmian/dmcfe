@@ -1,5 +1,7 @@
-use crate::{label::Label, tools};
-use bls12_381::{G1Projective, Scalar};
+use crate::tools;
+use cosmian_bls12_381::{G1Projective, Scalar};
+use eyre::Result;
+use std::time::SystemTime;
 use std::{
     iter::Sum,
     ops::{Add, Deref, DerefMut, Mul},
@@ -158,5 +160,47 @@ impl<T: Clone> IntoIterator for DVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.to_vec().into_iter()
+    }
+}
+
+/// DMCFE label
+#[derive(Clone)]
+pub struct Label(Vec<u8>);
+
+impl Label {
+    /// Get the timestamp as a label. Round to minutes.
+    pub fn new() -> Result<Self> {
+        Ok(Self(
+            (SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_secs()
+                / 60)
+                .to_be_bytes()
+                .to_vec(),
+        ))
+    }
+
+    pub fn aggregate(&mut self, r: &[u8]) {
+        self.0.append(&mut r.to_vec());
+    }
+}
+
+impl From<&str> for Label {
+    fn from(s: &str) -> Self {
+        Self(s.as_bytes().to_vec())
+    }
+}
+
+impl From<&[Scalar]> for Label {
+    fn from(v: &[Scalar]) -> Self {
+        let mut res: Vec<u8> = vec![];
+        v.iter()
+            .for_each(|val| res.append(&mut val.to_bytes().to_vec()));
+        Label(res)
+    }
+}
+impl AsRef<[u8]> for Label {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }

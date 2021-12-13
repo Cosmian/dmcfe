@@ -1,10 +1,8 @@
 use crate::{
-    dsum,
-    label::Label,
-    tools,
-    types::{DVec, TMat},
+    dsum, tools,
+    types::{DVec, Label, TMat},
 };
-use bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
+use cosmian_bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 
 /// DMCFE cyphertext type
 #[derive(Clone, Copy)]
@@ -38,7 +36,7 @@ pub struct DecryptionKey {
 fn t_gen(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> TMat<dsum::CypherText> {
     let mut res = [Default::default(); 4];
     for (i, res) in res.iter_mut().enumerate() {
-        let mut l = Label::from_bytes("Setup".as_bytes());
+        let mut l = Label::from("Setup");
         l.aggregate(&(i as u8).to_be_bytes());
         *res = dsum::encode(&Scalar::zero(), ski, pk_list, &l);
     }
@@ -56,15 +54,12 @@ pub fn setup(ski: &dsum::PrivateKey, pk_list: &[dsum::PublicKey]) -> PrivateKey 
 }
 
 /// Compute the DMCFE partial decryption key.
+/// - `id`:     client ID
 /// - `ski`:    DMCFE private key
-/// - `yi`:     component of the DMCFE decryption function associated to the client `i`
 /// - `y`:      decryption function
-/// TODO: find a nicer way not to pass both `y` and `yi`
-pub fn dkey_gen_share(ski: &PrivateKey, yi: &Scalar, y: &[Scalar]) -> PartialDecryptionKey {
-    let v = DVec::new(tools::double_hash_to_curve_in_g2(
-        Label::from_scalar_vec(y).as_ref(),
-    ));
-    PartialDecryptionKey(&(&ski.s * yi) * &G2Projective::generator() + &ski.t * &v)
+pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecryptionKey {
+    let v = DVec::new(tools::double_hash_to_curve_in_g2(Label::from(y).as_ref()));
+    PartialDecryptionKey(&(&ski.s * &y[id]) * &G2Projective::generator() + &ski.t * &v)
 }
 
 /// Combine the partial decryption keys to return the final decryption key.

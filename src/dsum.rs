@@ -1,5 +1,5 @@
-use crate::{label::Label, tools};
-use bls12_381::{G1Projective, G2Projective, Scalar};
+use crate::{tools, types::Label};
+use cosmian_bls12_381::{G1Projective, G2Projective, Scalar};
 use std::ops::{Deref, Mul};
 
 #[derive(Clone, Copy)]

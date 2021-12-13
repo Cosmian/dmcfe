@@ -2,9 +2,9 @@
 
 mod bus;
 
-use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use bus::{Bus, BusTx};
-use dmcfe::{dsum, ipdmcfe, label::Label};
+use cosmian_bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
+use dmcfe::{dsum, ipdmcfe, types::Label};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
@@ -168,7 +168,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
     // the thread data `xi` to check the final result
     for _ in 0..NB_DK {
         let y = bus::wait_n(&tx.yi, tx.n - 1, id)?;
-        let dki = ipdmcfe::dkey_gen_share(&ski, &y[id], &y);
+        let dki = ipdmcfe::dkey_gen_share(id, &ski, &y);
         bus::unicast(&tx.dk, tx.n - 1, dki)?;
     }
 

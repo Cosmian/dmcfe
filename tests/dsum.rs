@@ -2,8 +2,8 @@
 
 mod bus;
 
-use bls12_381::Scalar;
-use dmcfe::{dsum, label::Label};
+use cosmian_bls12_381::Scalar;
+use dmcfe::{dsum, types::Label};
 use eyre::Result;
 use rand::Rng;
 use std::thread;
