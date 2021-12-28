@@ -134,7 +134,7 @@ impl<T: Clone> BusQueues<T> {
         let FetchRequest { tx, id } = fetch_request;
 
         // send all private data
-        while 0 < self.private[id].len() {
+        while !self.private[id].is_empty() {
             safe_send(&tx, Ok(Some(self.private[id].swap_remove(0))))?;
         }
 
@@ -340,8 +340,8 @@ mod test {
                 });
 
                 let mut client_res = client.join().unwrap()?;
-                res.sort();
-                client_res.sort();
+                res.sort_unstable();
+                client_res.sort_unstable();
 
                 eyre::ensure!(
                     res.len() == client_res.len(),
@@ -389,7 +389,7 @@ mod test {
             }
 
             let mut res_ref: Vec<usize> = res[0].clone();
-            res_ref.sort();
+            res_ref.sort_unstable();
 
             for client_res in res.iter_mut().skip(1) {
                 // assert the size is correct
@@ -402,7 +402,7 @@ mod test {
                     res[0].len(),
                 );
                 // assert all clients have received the same data
-                client_res.sort();
+                client_res.sort_unstable();
                 for (res, client_res) in res_ref.iter().zip(client_res.iter()) {
                     eyre::ensure!(res == client_res, "Error: got wrong data from the bus!");
                 }

@@ -1,6 +1,8 @@
 use crate::tools;
 use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
+use std::convert::TryFrom;
+use std::ops::AddAssign;
 use std::time::SystemTime;
 use std::{
     iter::Sum,
@@ -132,11 +134,21 @@ where
 {
     type Output = DVec<T>;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        DVec([
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
+impl<T> AddAssign for DVec<T>
+where
+    T: Add<Output = T> + Clone,
+{
+    fn add_assign(&mut self, rhs: Self) {
+        *self = DVec([
             self[0].clone() + rhs[0].clone(),
             self[1].clone() + rhs[1].clone(),
-        ])
+        ]);
     }
 }
 
@@ -147,7 +159,7 @@ where
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         let mut res = Default::default();
         for dvec in iter {
-            res = res + dvec;
+            res += dvec;
         }
         res
     }
@@ -160,6 +172,20 @@ impl<T: Clone> IntoIterator for DVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.to_vec().into_iter()
+    }
+}
+
+impl<'a, T> TryFrom<&'a Vec<T>> for DVec<T>
+where
+    T: Clone,
+{
+    type Error = &'static str;
+
+    fn try_from(value: &'a Vec<T>) -> Result<Self, Self::Error> {
+        match value.len() {
+            2 => Ok(DVec([value[0].clone(), value[1].clone()])),
+            _ => Err("SizeError"),
+        }
     }
 }
 

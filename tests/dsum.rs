@@ -53,6 +53,7 @@ fn simulation(x: &[Vec<Scalar>], label: &Label) -> Result<Vec<Scalar>> {
     let data_bus = bus::Bus::open(n);
 
     // Launch the clients
+    #[allow(clippy::needless_collect)]
     let children: Vec<thread::JoinHandle<Result<Scalar>>> = x
         .iter()
         .enumerate()
