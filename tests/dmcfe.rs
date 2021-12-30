@@ -174,9 +174,9 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
 
     // We return the `xi` for testing purpose only: in real aplications, the
     // contribution should never be shared!
-    Ok(c_handle
+    c_handle
         .join()
-        .map_err(|err| eyre::eyre!("Error while sending the cyphertext: {:?}", err))??)
+        .map_err(|err| eyre::eyre!("Error while sending the cyphertext: {:?}", err))?
 }
 
 /// Simulate the final user. Ask for partial decryption keys from the clients,
@@ -196,7 +196,7 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
     // Ask for some decryption keys.
     let mut dk_list = Vec::with_capacity(NB_DK as usize);
     for _ in 0..NB_DK {
-        dk_list.push(get_decryption_key(&tx)?);
+        dk_list.push(get_decryption_key(tx)?);
     }
 
     // Ensure we got all the cyphertexts
@@ -236,6 +236,7 @@ fn simulation(n: usize) -> Result<()> {
     };
 
     // Launch the clients
+    #[allow(clippy::needless_collect)]
     let children: Vec<thread::JoinHandle<Result<Scalar>>> = (0..n)
         .map(|id| {
             let bus = bus.get_tx();

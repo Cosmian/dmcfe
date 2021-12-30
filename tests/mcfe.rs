@@ -18,10 +18,7 @@ use std::thread;
 // Client contribution:
 // - `cyphertext`:  the cyphered version of the client contributions
 // - `key`:         the partial decryption key
-struct Contribution {
-    cx: Vec<ipmcfe::CypherText>,
-    key: ipmcfe::PartialDecryptionKey,
-}
+struct Contribution(Vec<ipmcfe::CypherText>);
 
 /// Simulate a client:
 /// - compute the cyphered contributions;
@@ -30,34 +27,30 @@ struct Contribution {
 fn encrypt_simulation(
     eki: &ipmcfe::PrivateKey,
     xi: &[Scalar],
-    yi: &[Scalar],
     label: &Label,
     tx: mpsc::Sender<Contribution>,
 ) -> Result<()> {
-    tx.send(Contribution {
-        cx: ipmcfe::encrypt(eki, xi, label)?,
-        key: ipmcfe::dkey_gen(eki, yi)?,
-    })?;
-    Ok(())
+    tx.send(Contribution(ipmcfe::encrypt(eki, xi, label)?))
+        .map_err(|_| eyre::eyre!("Error while seding contribution!"))
 }
 
 /// Receive cyphered contributions from other clients, along with partial decryption keys.
 /// It builds the decryption key and use it do compute and return the result of `<x,y>`.
 fn decrypt_simulation(
+    msk: &[ipmcfe::PrivateKey],
+    y: &[Vec<Scalar>],
     rx: mpsc::Receiver<Contribution>,
     n: usize,
     label: &Label,
 ) -> Result<G1Projective> {
-    let mut C: Vec<Vec<ipmcfe::CypherText>> = Vec::new();
-    let mut keys: Vec<ipmcfe::PartialDecryptionKey> = Vec::new();
-    (0..n).for_each(|_| {
-        let contrib = rx.recv().unwrap();
-        C.push(contrib.cx);
-        keys.push(contrib.key);
-    });
-
     // Generate the decryption key
-    let dk = ipmcfe::key_comb(&keys)?;
+    let dk = ipmcfe::dkey_gen(msk, y)?;
+
+    // Gather contributions
+    let mut C: Vec<Vec<ipmcfe::CypherText>> = Vec::new();
+    (0..n).for_each(|_| {
+        C.push(rx.recv().unwrap().0);
+    });
 
     Ok(ipmcfe::decrypt(&C, &dk, label))
 }
@@ -89,7 +82,7 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: &Label) -> Result<G1P
     let m = X.first().unwrap().len();
 
     // generate encryption keys
-    let ek: Vec<ipmcfe::PrivateKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
+    let msk: Vec<ipmcfe::PrivateKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
 
     // Create the communication channels
     let (tx, rx): (mpsc::Sender<Contribution>, mpsc::Receiver<Contribution>) = mpsc::channel();
@@ -99,7 +92,8 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: &Label) -> Result<G1P
     // then compute the solution using the MCFE algorithm
     let res = {
         let label = label.clone();
-        thread::spawn(move || decrypt_simulation(rx, n, &label))
+        let msk = msk.clone();
+        thread::spawn(move || decrypt_simulation(&msk, &Y, rx, n, &label))
     };
 
     // Launch the encryption clients.
@@ -107,15 +101,9 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: &Label) -> Result<G1P
     // and their associated partial decryption key.
     let mut children = Vec::new();
     for i in 0..X.len() {
-        let (eki, xi, yi, tx, label) = (
-            ek[i].clone(),
-            X[i].clone(),
-            Y[i].clone(),
-            tx.clone(),
-            label.clone(),
-        );
+        let (eki, xi, tx, label) = (msk[i].clone(), X[i].clone(), tx.clone(), label.clone());
         children.push(thread::spawn(move || {
-            encrypt_simulation(&eki, &xi, &yi, &label, tx)
+            encrypt_simulation(&eki, &xi, &label, tx)
         }));
     }
 
