@@ -67,15 +67,15 @@ impl<T> TMat<T> {
 
 impl TMat<Scalar> {
     /// Generate `T_i` such that `Sum(T_i) = 0`.
-    /// l:          label
-    /// mat_list:   list of ecrypted `t_i`
+    /// l       : label
+    /// mat_list: list of ecrypted `t_i`
     pub fn encrypt(self, l: &Label, mat_list: &[TMat<G1Projective>]) -> Self {
         let mut res = [[Scalar::zero(); 2]; 2];
         for i in 0..2 {
             for j in 0..2 {
                 res[i][j] = mat_list
                     .iter()
-                    .map(|Tj| tools::h(l.as_ref(), &self[i][j], &Tj[i][j]))
+                    .map(|tj| tools::h(l.as_ref(), &self[i][j], &tj[i][j]))
                     .sum()
             }
         }

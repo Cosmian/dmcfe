@@ -33,30 +33,35 @@ pub struct CypherText {
 /// This algorithm implements the `Setup` function of the IPFE scheme.
 /// It returns `(msk, mpk)`, the master secret an public keys.
 ///
-/// - label   : dimension of the vector space
+/// - l: dimension of the vector space
 pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
     let msk = (0..l)
         .map(|_| PrivateKey(tools::random_scalar()))
         .collect::<Vec<_>>();
-    let MPK = (0..l)
+    let mpk = (0..l)
         .map(|i| PublicKey(tools::smul_in_g1(&msk[i])))
         .collect();
-    (msk, MPK)
+    (msk, mpk)
 }
 
 /// This algorithm implements the `Encrypt` function of the IPFE scheme.
 /// It returns the pair `(ct_0, (ct_i))`.
 ///
-/// - `MPK` : the master public key
-/// - `x`   : the text to be encrypted
-pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
-    eyre::ensure!(x.len() == MPK.len(), "Input text has wrong dimension!");
+/// - `MPK` : master public key
+/// - `x`   : message to be encrypted
+pub fn encrypt(mpk: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
+    eyre::ensure!(
+        x.len() == mpk.len(),
+        "Input text has wrong dimension: {} instead of {}!",
+        x.len(),
+        mpk.len()
+    );
     let r = tools::random_scalar();
     let c0 = tools::smul_in_g1(&r);
     let cx = x
         .iter()
-        .zip(MPK.iter())
-        .map(|(&xi, &PublicKey(hi))| tools::smul_in_g1(&xi) + (hi * r))
+        .zip(mpk.iter())
+        .map(|(xi, &PublicKey(hi))| tools::smul_in_g1(xi) + (hi * r))
         .collect();
     Ok(CypherText { c0, cx })
 }
@@ -64,10 +69,15 @@ pub fn encrypt(MPK: &[PublicKey], x: &[Scalar]) -> Result<CypherText> {
 /// Compute the functional decryption key of the IPFE algorithm.
 /// It returns `sky=<s,y>`.
 ///
-/// - `msk` : the master secret key
-/// - `y`   : the vector associated to the decryptied function
-pub fn key_der(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
-    eyre::ensure!(y.len() == msk.len(), "Input function has wrong dimensions!");
+/// - `msk` : master secret key
+/// - `y`   : vector associated to the decryption function
+pub fn key_gen(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
+    eyre::ensure!(
+        y.len() == msk.len(),
+        "Input vector function has wrong dimensions: {} instead of {}!",
+        y.len(),
+        msk.len()
+    );
     Ok(DecryptionKey(
         y.iter()
             .zip(msk.iter())
@@ -80,13 +90,13 @@ pub fn key_der(msk: &[PrivateKey], y: &[Scalar]) -> Result<DecryptionKey> {
 /// It returns `Prod(ct_i^y_i)/(ct_0^sky)` (written using the
 /// multiplicative notation).
 ///
-/// - `C`   : the cypher text
-/// - `y`   : the vector associated to the decrypted function
-/// - `sky` : the decryption key associated to the function
-pub fn decrypt(C: &CypherText, y: &[Scalar], sky: &DecryptionKey) -> G1Projective {
-    C.cx.iter()
+/// - `C`   : cypher text
+/// - `y`   : vector associated to the decryption function
+/// - `sky` : decryption key associated to the decryption function
+pub fn decrypt(c: &CypherText, y: &[Scalar], sky: &DecryptionKey) -> G1Projective {
+    c.cx.iter()
         .zip(y.iter())
         .map(|(ci, yi)| ci * yi)
         .sum::<G1Projective>()
-        - C.c0 * sky.0
+        - c.c0 * sky.0
 }

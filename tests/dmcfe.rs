@@ -52,8 +52,8 @@ impl SimuBus {
         SimuTx {
             n: self.n,
             yi: self.yi.tx.clone(),
-            pk: self.pk.tx.clone(),
-            dk: self.dk.tx.clone(),
+            dpk: self.pk.tx.clone(),
+            pdk: self.dk.tx.clone(),
             ci: self.ci.tx.clone(),
         }
     }
@@ -69,8 +69,8 @@ impl SimuBus {
 struct SimuTx {
     n: usize,
     yi: BusTx<Scalar>,
-    pk: BusTx<dsum::PublicKey>,
-    dk: BusTx<ipdmcfe::PartialDecryptionKey>,
+    dpk: BusTx<dsum::PublicKey>,
+    pdk: BusTx<ipdmcfe::PartialDecryptionKey>,
     ci: BusTx<((ipdmcfe::CypherText, Label), usize)>,
 }
 
@@ -109,20 +109,20 @@ fn check_labels(c: &[(ipdmcfe::CypherText, Label)]) -> Result<(Vec<ipdmcfe::Cyph
     Ok((c, label.clone()))
 }
 
-/// Send decryption function to the clients, wait for the associated partial
-/// decryption keys and compute the final decryption key.
+/// Send vector to the clients, wait for the associated partial decryption keys
+/// and compute the final decryption key.
 /// - `tx`: bus
 fn get_decryption_key(tx: &SimuTx) -> Result<ipdmcfe::DecryptionKey> {
-    // generate a new decrytion function
+    // generate a new vector
     let y: Vec<Scalar> = (0..(tx.n - 1)).map(|_| random_scalar()).collect();
     // broadcast it to the clients
     for &yi in &y {
         bus::broadcast(&tx.yi, yi)?;
     }
     // wait for the partial decryption keys
-    let dk_list = bus::wait_n(&tx.dk, tx.n - 1, tx.n - 1)?;
+    let pdk = bus::wait_n(&tx.pdk, tx.n - 1, tx.n - 1)?;
     // return the final decryption key
-    Ok(ipdmcfe::key_comb(&y, &dk_list))
+    Ok(ipdmcfe::key_comb(&y, &pdk))
 }
 
 /// Setup step of the DMCFE algorithm.
@@ -130,12 +130,12 @@ fn get_decryption_key(tx: &SimuTx) -> Result<ipdmcfe::DecryptionKey> {
 /// - `tx`: bus transmission channels
 fn client_setup(id: usize, tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
     // generate the DSum keys to create the `T` matrix
-    let dsum::KeyPair(ski, pki) = dsum::client_setup();
-    bus::broadcast(&tx.pk, pki)?;
-    let pk_list = bus::wait_n(&tx.pk, tx.n - 1, id)?;
-
+    let dsum::KeyPair(dski, dpki) = dsum::client_setup();
+    // share DSum public keys among clients
+    bus::broadcast(&tx.dpk, dpki)?;
+    let dpk = bus::wait_n(&tx.dpk, tx.n - 1, id)?;
     // generate the DMCFE secret key
-    Ok(ipdmcfe::setup(&ski, &pk_list))
+    Ok(ipdmcfe::setup(&dski, &dpk))
 }
 
 /// Simulate a client:
@@ -168,8 +168,8 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
     // the thread data `xi` to check the final result
     for _ in 0..NB_DK {
         let y = bus::wait_n(&tx.yi, tx.n - 1, id)?;
-        let dki = ipdmcfe::dkey_gen_share(id, &ski, &y);
-        bus::unicast(&tx.dk, tx.n - 1, dki)?;
+        let pdki = ipdmcfe::dkey_gen_share(id, &ski, &y);
+        bus::unicast(&tx.pdk, tx.n - 1, pdki)?;
     }
 
     // We return the `xi` for testing purpose only: in real aplications, the
@@ -180,7 +180,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
 }
 
 /// Simulate the final user. Ask for partial decryption keys from the clients,
-/// get the cyphertexts, decrypt data using the received decryption keys.
+/// get the cyphertexts, decrypt data using the computed decryption key.
 /// - `tx`: bus transmission channels
 fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> {
     // Listen to the clients and wait for the cyphertexts.
@@ -223,7 +223,8 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
 
 /// Simulate a complete DMCFE encryption and decryption process. The encryption
 /// of `x` for a given label `l` is done by `n` clients. The decryption is done
-/// by the user. He gathers the cyphertexts and asks for decryption keys.
+/// by the user. He gathers the cyphertexts and asks for the partial
+/// decryption keys.
 /// - `n`:  number of clients
 fn simulation(n: usize) -> Result<()> {
     // open the bus

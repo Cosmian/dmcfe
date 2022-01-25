@@ -52,7 +52,7 @@ fn decrypt_simulation(
         C.push(rx.recv().unwrap().0);
     });
 
-    Ok(ipmcfe::decrypt(&C, &dk, label))
+    ipmcfe::decrypt(&C, &dk, label)
 }
 
 /// Simulate a complete MCFE encryption and decryption process. The encryption
