@@ -23,10 +23,10 @@ pub struct PublicKey(pub G1Projective);
 pub struct DecryptionKey(pub Scalar);
 
 /// IPFE cyphertext structure
-/// - `c0`: `g^r`
-/// - `cx`: list of `ci` where `ci = hi^r = g^(si * r)`
 pub struct CypherText {
+    /// - `c0`: `g^r`
     pub c0: G1Projective,
+    /// - `cx`: list of `ci` where `ci = hi^r = g^(si * r)`
     pub cx: Vec<G1Projective>,
 }
 

@@ -9,11 +9,11 @@ use cosmian_bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective,
 pub struct CypherText(G1Projective);
 
 /// DMCFE private key type
-/// - `s`:  two dimensional scalar vector
-/// - `t`:  2x2 scalar matrix
 #[derive(Clone)]
 pub struct PrivateKey {
+    /// - `s`:  two dimensional scalar vector
     pub s: DVec<Scalar>,
+    /// - `t`:  2x2 scalar matrix
     pub t: TMat<dsum::CypherText>,
 }
 
@@ -22,12 +22,12 @@ pub struct PrivateKey {
 pub struct PartialDecryptionKey(DVec<G2Projective>);
 
 /// DMCFE decryption key type: `(y, d)`
-/// - `y`:  decryption function
-/// - `d`:  functional decryption key
 #[derive(Clone)]
 pub struct DecryptionKey {
+    /// - `y`:  decryption function
     pub y: Vec<Scalar>,
-    dk: DVec<G2Projective>,
+    /// - `d`:  functional decryption key
+    d: DVec<G2Projective>,
 }
 
 /// Create `Ti`, such that `Sum(Ti) = 0`.
@@ -68,7 +68,7 @@ pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecry
 pub fn key_comb(y: &[Scalar], pdk: &[PartialDecryptionKey]) -> DecryptionKey {
     DecryptionKey {
         y: y.to_vec(),
-        dk: pdk.iter().map(|&PartialDecryptionKey(di)| di).sum(),
+        d: pdk.iter().map(|&PartialDecryptionKey(di)| di).sum(),
     }
 }
 
@@ -95,7 +95,7 @@ pub fn decrypt(c: &[CypherText], dk: &DecryptionKey, l: &Label) -> Gt {
         })
         .sum::<Gt>()
         - u.iter()
-            .zip(dk.dk.iter())
+            .zip(dk.d.iter())
             .map(|(ui, di)| pairing(&G1Affine::from(ui), &G2Affine::from(di)))
             .sum::<Gt>()
 }
