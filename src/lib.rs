@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 // Private modules
 mod tools;
 mod notes {
