@@ -10,3 +10,5 @@ pub mod ipdmcfe;
 pub mod ipfe;
 pub mod ipmcfe;
 pub mod types;
+
+pub use cosmian_mcfe::lwe;
