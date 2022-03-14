@@ -8,10 +8,6 @@ edition = "2018"
 name = "cosmian_mcfe"
 path = "src/lib.rs"
 
-[[bin]]
-name = "cosmian_mcfe"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { package = "eyre", version = "0.6.0" }
 cosmian_crypto_base = "0.1"
