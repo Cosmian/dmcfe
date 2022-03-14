@@ -112,13 +112,12 @@ fn check_labels(c: &[(ipdmcfe::CypherText, Label)]) -> Result<(Vec<ipdmcfe::Cyph
 /// Send vector to the clients, wait for the associated partial decryption keys
 /// and compute the final decryption key.
 /// - `tx`: bus
-fn get_decryption_key(tx: &SimuTx, key_id: u8) -> Result<ipdmcfe::DecryptionKey> {
+fn get_decryption_key(tx: &SimuTx, key_id: u8, y: &[Scalar]) -> Result<ipdmcfe::DecryptionKey> {
     println!(
         "USER: generating vector {} and broadcasting it to clients",
         key_id
     );
-    let y: Vec<Scalar> = (0..(tx.n - 1)).map(|_| random_scalar()).collect();
-    for &yi in &y {
+    for &yi in y {
         bus::broadcast(&tx.yi, (key_id, yi))?;
     }
     println!(
@@ -127,7 +126,7 @@ fn get_decryption_key(tx: &SimuTx, key_id: u8) -> Result<ipdmcfe::DecryptionKey>
     );
     let pdk = bus::wait_n(&tx.pdk, tx.n - 1, tx.n - 1)?;
     println!("USER: received all partial decryption keys, computing the final decryption key for vector {}", key_id);
-    Ok(ipdmcfe::key_comb(&y, &pdk))
+    Ok(ipdmcfe::key_comb(y, &pdk))
 }
 
 /// Setup step of the DMCFE algorithm.
@@ -172,6 +171,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
             let xi: Scalar = random_scalar();
             let cij = ipdmcfe::encrypt(&xi, &ski, &l);
             bus::unicast(&tx.ci, tx.n - 1, ((cij, l), id))?;
+            // return plaintext contribution for test purpose
             Ok(xi)
         })
     };
@@ -189,6 +189,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
                 Ok(yi)
             })
             .collect::<Result<Vec<Scalar>>>()?;
+
         println!(
             "CLIENT {}: received vector {} from user. Generating partial decryption key.",
             id, key_id,
@@ -211,7 +212,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
 /// Simulate the final user. Ask for partial decryption keys from the clients,
 /// get the cyphertexts, decrypt data using the computed decryption key.
 /// - `tx`: bus transmission channels
-fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> {
+fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(Gt, Vec<Scalar>)>> {
     // Listen to the clients and wait for the cyphertexts.
     let c_handle = {
         let tx = tx.clone();
@@ -226,10 +227,13 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
     };
 
     // Ask for some decryption keys.
-    let mut dk_list = Vec::with_capacity(NB_DK as usize);
-    for key_id in 0..NB_DK {
-        dk_list.push(get_decryption_key(tx, key_id)?);
-    }
+    let dk_y_list = (0..NB_DK)
+        .map(|id| {
+            let y: Vec<Scalar> = (0..(tx.n - 1)).map(|_| random_scalar()).collect();
+            let dk: ipdmcfe::DecryptionKey = get_decryption_key(tx, id, &y)?;
+            Ok((dk, y))
+        })
+        .collect::<Result<Vec<(ipdmcfe::DecryptionKey, Vec<Scalar>)>>>()?;
 
     // Ensure we got all the cyphertexts
     let c = reorder(
@@ -244,13 +248,9 @@ fn decrypt_simulation(tx: &SimuTx) -> Result<Vec<(ipdmcfe::DecryptionKey, Gt)>> 
 
     // Decrypt the set of cyphertexts with each decryption key.
     println!("USER: decrypting cyphertexts");
-    Ok(dk_list
+    Ok(dk_y_list
         .iter()
-        .map(
-            |dk: &ipdmcfe::DecryptionKey| -> (ipdmcfe::DecryptionKey, Gt) {
-                (dk.clone(), ipdmcfe::decrypt(&c, dk, &l))
-            },
-        )
+        .map(|(dk, y)| (ipdmcfe::decrypt(&c, dk, &l), y.to_vec()))
         .collect())
 }
 
@@ -294,11 +294,11 @@ fn simulation(n: usize) -> Result<()> {
         .map_err(|err| eyre::eyre!("Error in the receiver thread: {:?}", err))??;
 
     // Check the results
-    for (dk, res) in res {
+    for (res, y) in res.iter() {
         eyre::ensure!(
-            res == pairing(&G1Affine::generator(), &G2Affine::generator())
+            *res == pairing(&G1Affine::generator(), &G2Affine::generator())
                 * x.iter()
-                    .zip(dk.y.iter())
+                    .zip(y.iter())
                     .map(|(xi, yi)| yi * xi)
                     .sum::<Scalar>(),
             "Wrong result!"

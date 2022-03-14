@@ -105,6 +105,9 @@ pub(crate) fn transpose<T: Copy>(v: &[Vec<T>]) -> Result<Vec<Vec<T>>> {
 
 /// Compute the matrix/vector multiplication in `G1`: `x.y`, where `x` is a
 /// scalar matrix and `y` a matrix of G1 elements.
+///
+/// TODO: multiplication can surely be optimised
+///
 /// - `x`: matrix
 /// - `y`: vector
 pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Projective>> {
@@ -133,6 +136,9 @@ pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Pro
 }
 
 /// Compute the matrix/vector multiplication in `Fp`.
+///
+/// TODO: multiplication can surely be optimised
+///
 /// - `x`: matrix;
 /// - `y`: vector.
 pub(crate) fn scal_mat_mul_dim_2(x: &[Vec<Scalar>], y: &[Scalar]) -> Result<Vec<Scalar>> {

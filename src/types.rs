@@ -85,7 +85,7 @@ impl TMat<Scalar> {
 
 /// 2 dimensional vector
 #[derive(Clone, Copy, Default)]
-pub struct DVec<T>(pub [T; 2]);
+pub struct DVec<T>(pub(crate) [T; 2]);
 
 impl<T> DVec<T> {
     pub fn new(a: (T, T)) -> Self {
@@ -171,6 +171,7 @@ impl<T: Clone> IntoIterator for DVec<T> {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
+        #[allow(clippy::unnecessary_to_owned)]
         self.0.to_vec().into_iter()
     }
 }
