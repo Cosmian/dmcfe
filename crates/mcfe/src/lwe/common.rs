@@ -1,85 +1,12 @@
-use std::convert::TryFrom;
-
-use cosmian_crypto_base::cs_prng::{Normal, Uniform};
-use num_bigint::{BigInt, BigUint};
+use crate::lwe::LabelVector;
+use num_bigint::BigUint;
 use sha3::{
     digest::generic_array::{typenum::U32, GenericArray},
     Digest, Sha3_256,
 };
 
-use super::{
-    parameters::{Parameters, Setup},
-    FunctionalKey, FunctionalKeyShare, LabelVector, MasterSecretKey, SecretKey,
-};
-
-impl From<&Parameters> for SecretKey {
-    fn from(parameters: &Parameters) -> Self {
-        secret_key(parameters)
-    }
-}
-
-impl TryFrom<&Setup> for SecretKey {
-    type Error = anyhow::Error;
-
-    fn try_from(setup: &Setup) -> Result<Self, Self::Error> {
-        Ok(secret_key(&Parameters::instantiate(setup)?))
-    }
-}
-
-impl From<&Parameters> for MasterSecretKey {
-    fn from(parameters: &Parameters) -> Self {
-        master_secret_key(parameters)
-    }
-}
-
-impl TryFrom<&Setup> for MasterSecretKey {
-    type Error = anyhow::Error;
-
-    fn try_from(setup: &Setup) -> Result<Self, Self::Error> {
-        Ok(master_secret_key(&Parameters::instantiate(setup)?))
-    }
-}
-
-/// Generate a Client Secret Key
-///
-/// Zᵢ = (sᵢ, tᵢ) ← Z¹ˣⁿ⁰ × D[ℤ¹ˣᵐ⁰,αq] for i∈{m}
-///
-/// A Vector of all these keys constitute the Master Secret Key
-pub(crate) fn secret_key(parameters: &Parameters) -> SecretKey {
-    let (m, n0, m0, q, std_dev) = (
-        parameters.message_length,
-        parameters.n0,
-        parameters.m0,
-        &parameters.q,
-        &parameters.sigma,
-    );
-    let mut uniform_cs_prng = Uniform::new();
-    let mut normal_cs_prng = Normal::new(&BigInt::from(0i32), std_dev);
-    let mut sk_array: Vec<Vec<BigUint>> = Vec::with_capacity(m);
-    for _ in 0..m {
-        let mut sk_mi_array = Vec::with_capacity(n0 + m0);
-        for _j in 0..n0 {
-            sk_mi_array.push(uniform_cs_prng.big_uint_below(q))
-        }
-        for _j in 0..m0 {
-            sk_mi_array.push(normal_cs_prng.big_uint(q));
-        }
-        sk_array.push(sk_mi_array);
-    }
-    SecretKey(sk_array)
-}
-
-/// Generate a Master Secret Key for the centralized model
-pub(crate) fn master_secret_key(parameters: &Parameters) -> MasterSecretKey {
-    let n = parameters.clients;
-    let mut msk: MasterSecretKey = Vec::with_capacity(n);
-    for _i in 0..n {
-        msk.push(secret_key(parameters));
-    }
-    msk
-}
-
 // A small utility to create a Sha3 hash with an appended counter
+#[inline]
 fn hash_with_counter(data: &[u8], counter: usize) -> GenericArray<u8, U32> {
     Sha3_256::new()
         .chain(data)
@@ -93,243 +20,14 @@ fn hash_with_counter(data: &[u8], counter: usize) -> GenericArray<u8, U32> {
 /// hᵢ = sha3(hᵢ₋₁||counter) for i ∈ [1..n₀+m₀[ and h₀=label
 #[inline]
 pub fn create_label_vector(label: &[u8], length: usize, q: &BigUint) -> LabelVector {
-    let mut vectors: Vec<BigUint> = Vec::with_capacity(length);
-    let mut h = hash_with_counter(label, 0);
-    vectors.push(BigUint::from_bytes_be(h.as_slice()) % q);
-    for i in 1..length {
-        h = hash_with_counter(h.as_slice(), i);
-        vectors.push(BigUint::from_bytes_be(h.as_slice()) % q);
-    }
-    vectors
-}
-
-/// Encrypt the given `message` of length `m` for the given `label` and
-/// `client`. Returns a vector of cipher texts of length `m`
-///
-/// using: `ctᵢ_ₗ = ⌊Zᵢ.H(l) + ⌊q/K⌋.xᵢ⌉->q₀`
-/// where ⌊x⌉->q₀ is ⌊(q₀/q).(x mod q)⌉ and ⌊⌉ is the rounding function
-pub(crate) fn encrypt(
-    parameters: &Parameters,
-    label: &[u8],
-    message: &[BigUint],
-    secret_key: &SecretKey,
-) -> anyhow::Result<Vec<BigUint>> {
-    anyhow::ensure!(
-        message.len() == parameters.message_length,
-        "The message is of length: {}, it must be of length: {}",
-        message.len(),
-        parameters.message_length,
-    );
-
-    let (m, q_div_k) = (parameters.message_length, &parameters.q_div_k);
-    // Zᵢ · H(l) = sₗ · aₗ + tᵢ · (Saₗ + eₗ )
-    // except that we use sha3 here so we perform the dot product
-    let z_i = secret_key;
-    let n0_m0 = parameters.n0 + parameters.m0;
-    // H(l)
-    let h_l = create_label_vector(&label, n0_m0, &parameters.q);
-    // instantiate the vector and fill
-    let mut ct_il: Vec<BigUint> = Vec::with_capacity(m);
-    for (mi, mu) in message.iter().enumerate() {
-        anyhow::ensure!(
-            mu <= &parameters.message_bound,
-            "message element: {}, is bigger than upper bound: {}",
-            mu,
-            parameters.message_bound,
-        );
-
-        // calculate Zᵢ.H(l)
-        let mut zi_hl = BigUint::from(0u32);
-        for (j, h_l_j) in h_l.iter().enumerate() {
-            zi_hl += h_l_j * &z_i.0[mi][j];
-        }
-        // round: modulo q and rescale to q0
-        ct_il.push(round_to_q0(parameters, &(&zi_hl + q_div_k * mu)));
-    }
-    Ok(ct_il)
-}
-
-/// Issue a functional key for the `vectors` from a Master Secret Key.
-/// The `vectors` has `number of clients` vectors of message length`
-///
-/// Calculated as `sky = ∑yᵢ.Zᵢ` where `i∈{nm}`
-/// and `n` is the number of clients
-pub fn functional_key(
-    parameters: &Parameters,
-    msk: &[SecretKey],
-    vectors: &[Vec<BigUint>],
-) -> anyhow::Result<FunctionalKey> {
-    anyhow::ensure!(
-        vectors.len() == parameters.clients,
-        "The vectors number of rows: {}, must be equal to the number of clients: {}",
-        vectors.len(),
-        parameters.clients,
-    );
-
-    let (n0_m0, n, q) = (
-        parameters.n0 + parameters.m0,
-        parameters.clients,
-        &parameters.q,
-    );
-    let mut sky: FunctionalKey = FunctionalKey(vec![BigUint::from(0u32); n0_m0]);
-    for i in 0..n {
-        let z_i = &msk[i];
-        let y_i = &vectors[i];
-        let sky_i = clear_text_functional_key_share(parameters, z_i, y_i)?;
-        for (j, sky_i_j) in sky_i.iter().enumerate() {
-            sky.0[j] += sky_i_j;
-            sky.0[j] %= q;
-        }
-    }
-    Ok(sky)
-}
-
-/// The client share of a functional key
-///
-/// Calculated as `sky = ∑yᵢ.Zᵢ` where `i∈{nm}`
-/// and `n` is the number of clients
-pub fn clear_text_functional_key_share(
-    parameters: &Parameters,
-    client_secret_key: &SecretKey,
-    client_vector: &[BigUint],
-) -> anyhow::Result<Vec<BigUint>> {
-    let (m, n0_m0, vector_bound, q) = (
-        parameters.message_length,
-        parameters.n0 + parameters.m0,
-        &parameters.vectors_bound,
-        &parameters.q,
-    );
-    let mut sky_share = vec![BigUint::from(0u32); n0_m0];
-    let z_i = client_secret_key;
-    let y_i = client_vector;
-    anyhow::ensure!(
-        y_i.len() == m,
-        "The vectors column size: {} must be equal that of the message: {}",
-        y_i.len(),
-        m,
-    );
-
-    for (mi, y_i_mi) in y_i.iter().enumerate() {
-        anyhow::ensure!(
-            y_i_mi < vector_bound,
-            "The vector value {} >= {}, which is not allowed",
-            y_i_mi,
-            vector_bound
-        );
-
-        let z_i_mi = &z_i.0[mi];
-        for (j, z_i_mi_j) in z_i_mi.iter().enumerate() {
-            sky_share[j] += y_i_mi * z_i_mi_j;
-        }
-    }
-    // clippy: no RemAssign implementation
-    // on BigUint references so no possibility to iter_mut()
-    #[allow(clippy::needless_range_loop)]
-    for j in 0..n0_m0 {
-        sky_share[j] %= q;
-    }
-    Ok(sky_share)
-}
-
-/// Issue an encrypted functional key share for the `vectors` as client number
-/// `client`
-///
-/// The `share_secret_key` must have been issued with the other clients
-/// so that `∑ fks_skᵢ = 0` where `i ∈ {n}` and `n` is the number of clients.
-///
-/// The `vectors` has `number of clients` vectors of message length`
-///
-/// Calculated as `fksᵢ = Enc₂(fks_skᵢ, yᵢ.sk, ᵢ, H(y))` where `i` is this
-/// client number, `fks_skᵢ` is the functional key share secret key, `sk` is the
-/// secret key and `yᵢ` is the vector for that client
-/// size is m
-pub fn encrypted_functional_key_share(
-    parameters: &Parameters,
-    secret_key: &SecretKey,
-    fks_secret_key: &SecretKey,
-    vectors: &[Vec<BigUint>],
-    client: usize,
-) -> anyhow::Result<FunctionalKeyShare> {
-    let (n, m, n0_m0) = (
-        parameters.clients,
-        parameters.message_length,
-        parameters.n0 + parameters.m0,
-    );
-    anyhow::ensure!(
-        client < n,
-        "Invalid client number: {}. There are {} clients",
-        client,
-        n
-    );
-
-    anyhow::ensure!(
-        vectors.len() == n,
-        "Invalid vectors length: {}. There are {} clients",
-        vectors.len(),
-        n
-    );
-
-    anyhow::ensure!(
-        vectors[0].len() == m,
-        "Invalid number of vectors coefficients for client 0: {}. The message length is: {}",
-        vectors[0].len(),
-        m
-    );
-
-    anyhow::ensure!(
-        secret_key.0.len() == m,
-        "Invalid number of secret keys: {}. It should be: {}",
-        secret_key.0.len(),
-        m
-    );
-
-    for (mi, sk) in secret_key.0.iter().enumerate() {
-        anyhow::ensure!(
-            sk.len() == n0_m0,
-            "Invalid secret key length: {}, for message: {}. It should be: {}",
-            sk.len(),
-            mi,
-            n0_m0
-        );
-    }
-    let fks_parameters = parameters.fks_parameters()?;
-    anyhow::ensure!(
-        fks_secret_key.0.len() == fks_parameters.message_length,
-        "Invalid number of FKS secret keys: {}. It should be: {}",
-        fks_secret_key.0.len(),
-        n0_m0
-    );
-
-    for (mi, sk) in fks_secret_key.0.iter().enumerate() {
-        anyhow::ensure!(
-            sk.len() == fks_parameters.n0 + fks_parameters.m0,
-            "Invalid FKS secret key length: {}, for message: {}. It should be: {}",
-            sk.len(),
-            mi,
-            n0_m0
-        );
-    }
-    // create a label for hash vector H(y)
-    let h_y_label = create_functional_key_label(vectors);
-    // encryption of all µⱼ for j ∈{n₀+m₀}
-    let sky_i = clear_text_functional_key_share(parameters, secret_key, &vectors[client])?;
-    // encrypt it
-    let mut enc_fks: Vec<BigUint> = Vec::with_capacity(n0_m0);
-    for (idx, sky_i_j) in sky_i.iter().enumerate() {
-        // no label reuse - add counter
-        let mut this_label = idx.to_be_bytes().to_vec();
-        this_label.extend_from_slice(&h_y_label);
-        enc_fks.push(
-            encrypt(
-                &fks_parameters,
-                &this_label,
-                &[sky_i_j.clone()],
-                fks_secret_key,
-            )?[0]
-                .clone(),
-        );
-    }
-    Ok(FunctionalKeyShare(enc_fks))
+    // hash of the label with a counter
+    let mut data = label.to_owned();
+    (0..length)
+        .map(|i| {
+            data = hash_with_counter(&data, i).to_vec();
+            BigUint::from_bytes_be(&data) % q
+        })
+        .collect()
 }
 
 pub(crate) fn create_functional_key_label(vectors: &[Vec<BigUint>]) -> Vec<u8> {
@@ -342,160 +40,18 @@ pub(crate) fn create_functional_key_label(vectors: &[Vec<BigUint>]) -> Vec<u8> {
     bytes
 }
 
-/// Combine the functional key shares from the clients
-/// To recover the functional key
-///
-/// Implemented as the scalar product of the share and the 1 vector
-/// which performs ∑skᵢ.zᵢ for i∈{n}
-pub fn recover_functional_key(
-    parameters: &Parameters,
-    functional_key_shares: &[FunctionalKeyShare],
-    vectors: &[Vec<BigUint>],
-) -> anyhow::Result<FunctionalKey> {
-    let (n, n0_m0, q) = (
-        parameters.clients,
-        parameters.n0 + parameters.m0,
-        &parameters.q,
-    );
-    let fks_parameters = parameters.fks_parameters()?;
-    let fks_n0_m0 = fks_parameters.n0 + fks_parameters.m0;
-    // perform the scalar products of <Enc(sk_j),1>
-    // the vector to perform the n₀+m₀ scalar product over the n encrypted
-    // functional key shares
-    let fks_vectors = vec![vec![BigUint::from(1u32)]; n];
-    // the functional key is a vector of length  n₀+m₀ filled with zeroes:
-    // since the functional_key_vectors is filled with 1, ∑skᵢ.yᵢ = ∑skᵢ = 0 by
-    // construction
-    let fks_functional_key = FunctionalKey(vec![BigUint::from(0u32); fks_n0_m0]);
-    // the H(y) used is a hash of all the vectors that get into the final functional
-    // computation
-    let h_y_label = create_functional_key_label(vectors);
-    // we need to perform the scalar product for the n₀+m₀ vectors
-    // across the n clients
-    let mut functional_key: Vec<BigUint> = Vec::with_capacity(n0_m0);
-    for j in 0..n0_m0 {
-        // assemble all the functional key shares from all client for that j
-        let mut fks_j: Vec<Vec<BigUint>> = Vec::with_capacity(n);
-        for fks_i in functional_key_shares {
-            fks_j.push(vec![fks_i.0[j].clone()]);
-        }
-        // no label reuse - add counter
-        let mut this_label = j.to_be_bytes().to_vec();
-        this_label.extend_from_slice(&h_y_label);
-        functional_key.push(
-            decrypt(
-                &fks_parameters,
-                &this_label,
-                &fks_j,
-                &fks_functional_key,
-                &fks_vectors,
-            )? % q,
-        );
-    }
-    Ok(FunctionalKey(functional_key))
-}
-
-/// Calculate and decrypt the inner product vector of `<messages , vectors>`
-/// for the given `cipher_texts`, `label` and `functional_key`.
-///
-///  - The `cipher_texts` vectors size must be equal to `nxm` = `number of
-///    clients x message length`.
-///  - The `functional_key` vectors must have size 1x(n₀+m₀) `message length`
-///    rows.
-///  - The `vectors` must contain `number of clients` vectors of  `message
-///    length`.
-///
-/// `cipher_texts` and `vectors` must have the same clients ordering
-///
-/// Calculated as `μ = ∑yᵢ.ctᵢ_ₗ - ⌊sk.H(l)⌉->q₀ mod q₀` for each message
-/// element where `i∈{n}` and ⌊x⌉->q₀ is ⌊(q₀/q).(x mod q)⌉ and ⌊⌉ is the
-/// rounding function
-pub fn decrypt(
-    parameters: &Parameters,
-    label: &[u8],
-    cipher_texts: &[Vec<BigUint>],
-    functional_key: &FunctionalKey,
-    vectors: &[Vec<BigUint>],
-) -> anyhow::Result<BigUint> {
-    anyhow::ensure!(
-        cipher_texts.len() == parameters.clients,
-        "The cipher texts vector size: {}, must be equal to the number of clients: {}",
-        cipher_texts.len(),
-        parameters.clients,
-    );
-
-    anyhow::ensure!(
-        vectors.len() == parameters.clients,
-        "The vector size: {}, must be equal to the number of clients: {}",
-        vectors.len(),
-        parameters.clients,
-    );
-
-    let (m, n, n0_m0, k, q0, q, q0_q_div_k, q0_q_div_2k) = (
-        parameters.message_length,
-        parameters.clients,
-        parameters.n0 + parameters.m0,
-        &parameters.k,
-        &parameters.q0,
-        &parameters.q,
-        &parameters.q0_q_div_k,
-        &parameters.q0_q_div_2k,
-    );
-    let mut mu = BigUint::from(0u32);
-    for c in 0..n {
-        for mi in 0..m {
-            mu += &vectors[c][mi] * &cipher_texts[c][mi];
-        }
-    }
-    // rounded term ⌊sk.H(l)⌉->q₀
-    let h_l = create_label_vector(&label, n0_m0, q);
-    let mut sk_hl = BigUint::from(0u32);
-    for (j, h_l_j) in h_l.iter().enumerate() {
-        sk_hl += &functional_key.0[j] * h_l_j;
-    }
-    // add terms
-    // mu_m -= round_to_q0(parameters, &sk_hl);
-    mu += q0 - round_to_q0(parameters, &sk_hl);
-    // return modulo q0
-    mu %= q0;
-    // now rescale with rounding
-    mu *= q;
-    // perform rounding
-    mu += q0_q_div_2k;
-    mu /= q0_q_div_k;
-    mu %= k;
-    Ok(mu)
-}
-
-/// Calculates ⌊x⌉->q₀ is ⌊(q₀/q).(x mod q)⌉
-/// and ⌊⌉ is the rounding function
-///
-/// Performed as [(x%q)*q₀ + q/2]/q
-pub(crate) fn round_to_q0(parameters: &Parameters, v: &BigUint) -> BigUint {
-    let (q, q0, half_q) = (&parameters.q, &parameters.q0, &parameters.half_q);
-    let mut res = v % q;
-    res *= q0;
-    res += half_q;
-    res /= q;
-    res
-}
-
 #[cfg(test)]
-#[allow(clippy::needless_range_loop)]
 pub(crate) mod tests {
 
-    use std::{thread, time::Instant};
-
+    use super::{
+        super::{parameters::Parameters, SecretKey},
+        create_label_vector,
+    };
+    use crate::lwe::parameters::Setup;
     use cosmian_crypto_base::cs_prng::Uniform;
     use num_bigint::BigUint;
     use rand::{thread_rng, Rng};
-
-    use super::{
-        super::{common::SecretKey, parameters::Parameters},
-        create_label_vector, decrypt, encrypt, functional_key, master_secret_key, round_to_q0,
-        secret_key,
-    };
-    use crate::lwe::parameters::Setup;
+    use std::{thread, time::Instant};
 
     #[test]
     fn test_big_int() {
@@ -554,7 +110,7 @@ pub(crate) mod tests {
             let rnd = f64::round(((i % q) as f64) * (q0 as f64) / (q as f64));
             assert_eq!(
                 BigUint::from(rnd as u64),
-                round_to_q0(&params, &BigUint::from(i)),
+                params.round_to_q0(&BigUint::from(i)),
                 "failed for q: {}, q0: {}, i: {}, rnd: {}",
                 q,
                 q0,
@@ -573,7 +129,7 @@ pub(crate) mod tests {
         // same thing for n0
         params.n0 = FACTOR * 100_000usize;
         // key generation
-        let sk = secret_key(&params);
+        let sk = params.secret_key();
         // check
         let q = params.q.clone();
         let std_dev = params.sigma.clone();
@@ -632,17 +188,17 @@ pub(crate) mod tests {
     #[test]
     fn test_key_der() -> anyhow::Result<()> {
         let params = paper_params();
-        let msk = master_secret_key(&params);
+        let msk = params.master_secret_key();
         let mut vectors: Vec<Vec<BigUint>> =
             vec![vec![BigUint::from(0u32); params.message_length]; params.clients];
         #[allow(clippy::needless_range_loop)]
         let mut uniform = Uniform::new();
-        for c in 0..params.clients {
-            for mi in 0..params.message_length {
-                vectors[c][mi] = uniform.big_uint_below(&params.vectors_bound);
-            }
-        }
-        let sky = functional_key(&params, &msk, &vectors)?;
+        vectors.iter_mut().for_each(|vector| {
+            vector.iter_mut().for_each(|coeff| {
+                *coeff = uniform.big_uint_below(&params.vectors_bound);
+            });
+        });
+        let sky = params.functional_key(&msk, &vectors)?;
         assert_eq!(params.n0 + params.m0, sky.0.len());
         for sky_j in sky.0 {
             assert!(sky_j < params.q);
@@ -661,14 +217,14 @@ pub(crate) mod tests {
         // if we encrypt a vector of 0, we should get a vector of the rounded version of
         // Zᵢ.H(l)
         let mu = vec![BigUint::from(0u32); params.message_length];
-        let zi = secret_key(&params);
-        let ct_il = encrypt(&params, &label, &mu, &zi)?;
+        let zi = params.secret_key();
+        let ct_il = params.encrypt(&label, &mu, &zi)?;
         for (mi, ct_il_mi) in ct_il.iter().enumerate() {
             let mut zi_hl = BigUint::from(0u32);
             for (j, h_l_j) in h_l.iter().enumerate() {
                 zi_hl += h_l_j * &zi.0[mi][j];
             }
-            assert_eq!(&round_to_q0(&params, &zi_hl), ct_il_mi)
+            assert_eq!(&params.round_to_q0(&zi_hl), ct_il_mi)
         }
         // if the key is null, we should get ⌊ ⌊q/K⌋.xᵢ⌉->q₀
         let mut uniform = Uniform::new();
@@ -680,12 +236,9 @@ pub(crate) mod tests {
         for _mi in 0..params.message_length {
             mu.push(uniform.big_uint_below(&params.message_bound));
         }
-        let ct_il = encrypt(&params, &label, &mu, &zi)?;
+        let ct_il = params.encrypt(&label, &mu, &zi)?;
         for mi in 0..params.message_length {
-            assert_eq!(
-                round_to_q0(&params, &(&params.q_div_k * &mu[mi])),
-                ct_il[mi]
-            )
+            assert_eq!(params.round_to_q0(&(&params.q_div_k * &mu[mi])), ct_il[mi])
         }
         Ok(())
     }
@@ -701,7 +254,7 @@ pub(crate) mod tests {
         })?;
         let mut label = [0u8; 32];
         rand::thread_rng().fill(&mut label);
-        let zi = secret_key(&parameters);
+        let zi = parameters.secret_key();
         let mut nanos_total = 0u128;
         let loops: usize = 25000usize;
         for _l in 0usize..loops {
@@ -711,11 +264,10 @@ pub(crate) mod tests {
                 mu.push(uniform.big_uint_below(&parameters.message_bound));
             }
             let now = Instant::now();
-            encrypt(&parameters, &label, &mu, &zi)?;
+            parameters.encrypt(&label, &mu, &zi)?;
             nanos_total += now.elapsed().as_nanos();
         }
-        let enc_0 = encrypt(
-            &parameters,
+        let enc_0 = parameters.encrypt(
             &label,
             &vec![&parameters.message_bound - 1u32; parameters.message_length],
             &zi,
@@ -796,16 +348,16 @@ pub(crate) mod tests {
             }
         }
         // master key generation
-        let msk = master_secret_key(params);
+        let msk = params.master_secret_key();
         // derived key generation
-        let sky = functional_key(params, &msk, &vectors)?;
+        let sky = params.functional_key(&msk, &vectors)?;
         //encryption
         let mut cts: Vec<Vec<BigUint>> = Vec::with_capacity(n);
         for (i, m) in messages.iter().enumerate() {
-            cts.push(encrypt(&params, &label, m, &msk[i])?);
+            cts.push(params.encrypt(&label, m, &msk[i])?);
         }
         // decryption
-        let result = decrypt(params, &label, &cts, &sky, &vectors)?;
+        let result = params.decrypt(&label, &cts, &sky, &vectors)?;
         assert_eq!(
             &expected, &result,
             "parameters: {}, expected: {}, result: {}",
@@ -927,22 +479,24 @@ pub(crate) mod tests {
             }
         }
         // master key generation
-        let msk = master_secret_key(&parameters);
+        let msk = parameters.master_secret_key();
         // derived key generation
-        let sky = functional_key(&parameters, &msk, &vectors)?;
+        let sky = parameters.functional_key(&msk, &vectors)?;
         //encryption
         let mut cts: Vec<Vec<BigUint>> = Vec::with_capacity(clients);
         for (i, m) in messages.iter().enumerate() {
-            cts.push(encrypt(&parameters, &label, m, &msk[i])?);
+            cts.push(parameters.encrypt(&label, m, &msk[i])?);
         }
         let mut nanos_total = 0u128;
         let loops: usize = 50_000 / m;
         for _l in 0usize..loops {
             let now = Instant::now();
-            decrypt(&parameters, &label, &cts, &sky, &vectors)?;
+            parameters.decrypt(&label, &cts, &sky, &vectors)?;
             nanos_total += now.elapsed().as_nanos();
         }
-        let dec_0 = decrypt(&parameters, &label, &cts, &sky, &vectors)?.to_bytes_be();
+        let dec_0 = parameters
+            .decrypt(&label, &cts, &sky, &vectors)?
+            .to_bytes_be();
         println!(
             "{:>5}, {:>4}, {:>4}, {:>4}, {:>4}, {:>8}",
             nanos_total / 1000 / (loops as u128),

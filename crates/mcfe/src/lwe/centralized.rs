@@ -3,7 +3,6 @@ use num_bigint::BigUint;
 
 // use super::labels::Labels;
 use super::{
-    common::{decrypt, encrypt, functional_key, master_secret_key},
     parameters::{Parameters, Setup},
     FunctionalKey, MasterSecretKey,
 };
@@ -43,7 +42,7 @@ impl Mcfe {
 
     /// Generate a Master Secret Key and set it on the MCFE instance
     pub fn new_master_secret_key(&mut self) {
-        self.msk = Some(master_secret_key(&self.parameters));
+        self.msk = Some(self.parameters.master_secret_key());
     }
 
     /// Retrieve the Master Secret Key if one has been set on the MCFE instance
@@ -79,7 +78,7 @@ impl Mcfe {
             .as_ref()
             .context("The master secret key must be generated first")?;
         let secret_key = &msk[client];
-        encrypt(&self.parameters, label, message, secret_key)
+        self.parameters.encrypt(label, message, secret_key)
     }
 
     /// Issue a functional key for the `vectors`.
@@ -92,7 +91,7 @@ impl Mcfe {
             .msk
             .as_ref()
             .context("The master secret key must be generated first")?;
-        functional_key(&self.parameters, msk, vectors)
+        self.parameters.functional_key(msk, vectors)
     }
 
     /// Calculate and decrypt the inner product vector of `<messages , vectors>`
@@ -114,13 +113,8 @@ impl Mcfe {
         functional_key: &FunctionalKey,
         vectors: &[Vec<BigUint>],
     ) -> anyhow::Result<BigUint> {
-        decrypt(
-            &self.parameters,
-            label,
-            cipher_texts,
-            functional_key,
-            vectors,
-        )
+        self.parameters
+            .decrypt(label, cipher_texts, functional_key, vectors)
     }
 }
 
