@@ -283,10 +283,10 @@ impl Parameters {
             let sky_i = self.clear_text_functional_key_share(z_i, y_i)?;
             for (sky_ij, sky_share_j) in sky_i.iter().zip(sky_share.0.iter_mut()) {
                 *sky_share_j += sky_ij;
-                *sky_share_j %= &self.q;
             }
         }
 
+        sky_share.0.iter_mut().for_each(|sky_i| *sky_i %= &self.q);
         Ok(sky_share)
     }
 
@@ -320,9 +320,10 @@ impl Parameters {
                 .zip(sky_share.iter_mut())
                 .for_each(|(z_ijk, sky_share_k)| {
                     *sky_share_k += y_ij * z_ijk;
-                    *sky_share_k %= &self.q;
                 });
         }
+
+        sky_share.iter_mut().for_each(|sky_i| *sky_i %= &self.q);
 
         Ok(sky_share)
     }

@@ -1,30 +1,21 @@
 use crate::lwe::LabelVector;
 use num_bigint::BigUint;
-use sha3::{
-    digest::generic_array::{typenum::U32, GenericArray},
-    Digest, Sha3_256,
-};
-
-// A small utility to create a Sha3 hash with an appended counter
-#[inline]
-fn hash_with_counter(data: &[u8], counter: usize) -> GenericArray<u8, U32> {
-    Sha3_256::new()
-        .chain(data)
-        .chain(&counter.to_be_bytes())
-        .finalize()
-}
+use sha3::{Digest, Sha3_256};
 
 /// Create a label vector for label `label` of length `length` in ℤq
 ///
 /// The n₀+m₀ terms are taken as `Sha3(hᵢ||counter)` where
 /// hᵢ = sha3(hᵢ₋₁||counter) for i ∈ [1..n₀+m₀[ and h₀=label
-#[inline]
+#[inline(always)]
 pub fn create_label_vector(label: &[u8], length: usize, q: &BigUint) -> LabelVector {
-    // hash of the label with a counter
-    let mut data = label.to_owned();
+    let mut h = Sha3_256::new();
+    h.update(label);
+    let mut data = h.finalize_reset();
     (0..length)
         .map(|i| {
-            data = hash_with_counter(&data, i).to_vec();
+            h.update(&data);
+            h.update(&i.to_be_bytes());
+            data = h.finalize_reset();
             BigUint::from_bytes_be(&data) % q
         })
         .collect()
