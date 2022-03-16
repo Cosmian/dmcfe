@@ -19,7 +19,7 @@ impl<'a> std::iter::FromIterator<&'a CypherText> for Vec<G1Projective> {
 #[derive(Clone)]
 pub struct PrivateKey {
     /// - `s`  : private key
-    pub s: Vec<Vec<Scalar>>,
+    s: Vec<Vec<Scalar>>,
     /// - `msk`: IPFE master secret key
     msk: Vec<ipfe::PrivateKey>,
 }
@@ -27,11 +27,11 @@ pub struct PrivateKey {
 /// MCFE decryption key type
 pub struct DecryptionKey {
     /// - `y`    : the decryption function
-    pub(crate) y: Vec<Vec<Scalar>>,
+    y: Vec<Vec<Scalar>>,
     /// - `d`    : the MCFE `dk_y = Sum(Si^T.yi)`
-    pub(crate) d: types::DVec<Scalar>,
+    d: types::DVec<Scalar>,
     /// - `ip_dk`: IPFE decryption key
-    pub(crate) ip_dk: Vec<ipfe::DecryptionKey>,
+    ip_dk: Vec<ipfe::DecryptionKey>,
 }
 
 /// Compute the client encryption keys.

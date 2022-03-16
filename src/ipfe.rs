@@ -4,7 +4,7 @@ use eyre::Result;
 
 /// IPFE private key type
 #[derive(Clone, Copy)]
-pub struct PrivateKey(pub Scalar);
+pub struct PrivateKey(pub(crate) Scalar);
 
 impl std::ops::Deref for PrivateKey {
     type Target = Scalar;
@@ -16,18 +16,18 @@ impl std::ops::Deref for PrivateKey {
 
 /// IPFE public key type
 #[derive(Clone, Copy)]
-pub struct PublicKey(pub G1Projective);
+pub struct PublicKey(G1Projective);
 
 /// IPFE decryption key type
 #[derive(Clone, Copy)]
-pub struct DecryptionKey(pub Scalar);
+pub struct DecryptionKey(Scalar);
 
 /// IPFE cyphertext structure
 pub struct CypherText {
     /// - `c0`: `g^r`
-    pub c0: G1Projective,
+    pub(crate) c0: G1Projective,
     /// - `cx`: list of `ci` where `ci = hi^r = g^(si * r)`
-    pub cx: Vec<G1Projective>,
+    pub(crate) cx: Vec<G1Projective>,
 }
 
 /// This algorithm implements the `Setup` function of the IPFE scheme.

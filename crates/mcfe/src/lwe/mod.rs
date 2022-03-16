@@ -14,6 +14,8 @@ pub type DMcfe = decentralized::DMcfe;
 pub type LabelVector = Vec<BigUint>;
 
 /// Client secret Key of size m * n₀+m₀
+/// TODO: implement Deref
+/// TODO: implement Iter
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SecretKey(pub Vec<Vec<BigUint>>);
 
@@ -21,6 +23,7 @@ pub struct SecretKey(pub Vec<Vec<BigUint>>);
 pub type MasterSecretKey = Vec<SecretKey>;
 
 /// A functional Key of  1 x (n₀+m₀)
+/// TODO: implement Deref
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FunctionalKey(pub Vec<BigUint>);
 /// Encrypted client share of a functional key in the decentralized model

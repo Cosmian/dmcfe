@@ -1,11 +1,7 @@
 use anyhow::ContextCompat as _;
 use num_bigint::BigUint;
 
-use super::{
-    common::{self, decrypt, encrypt, secret_key},
-    parameters::Parameters,
-    FunctionalKey, FunctionalKeyShare, SecretKey,
-};
+use super::{parameters::Parameters, FunctionalKey, FunctionalKeyShare, SecretKey};
 
 /// Implementation of a Decentralized Multi-Client Inner-Product Functional
 /// Encryption in the Random-Oracle Model
@@ -48,7 +44,7 @@ impl DMcfe {
     ///
     /// A Vector of all these keys constitute the Master Secret Key
     pub fn new_secret_key(&mut self) -> &SecretKey {
-        self.sk = Some(secret_key(&self.parameters));
+        self.sk = Some(self.parameters.secret_key());
         self.sk
             .as_ref()
             .expect("This cannot happen; we just set the key on the option")
@@ -74,7 +70,7 @@ impl DMcfe {
             .sk
             .as_ref()
             .context("The secret key must be generated or set before encrypting a value.")?;
-        encrypt(&self.parameters, label, message, secret_key)
+        self.parameters.encrypt(label, message, secret_key)
     }
 
     // pub(crate) fn create_functional_key_hash_vector(
@@ -114,13 +110,8 @@ impl DMcfe {
         let secret_key = self.sk.as_ref().context(
             "The secret key must be generated or set before generating the functional key share.",
         )?;
-        common::encrypted_functional_key_share(
-            &self.parameters,
-            &secret_key,
-            fks_secret_key,
-            vectors,
-            client,
-        )
+        self.parameters
+            .encrypted_functional_key_share(secret_key, fks_secret_key, vectors, client)
     }
 
     /// Combine the functional key shares from the clients
@@ -133,7 +124,8 @@ impl DMcfe {
         functional_key_shares: &[FunctionalKeyShare],
         vectors: &[Vec<BigUint>],
     ) -> anyhow::Result<FunctionalKey> {
-        common::recover_functional_key(&self.parameters, functional_key_shares, vectors)
+        self.parameters
+            .recover_functional_key(functional_key_shares, vectors)
     }
 
     /// Generate a secret key which can be used to perform the
@@ -142,7 +134,7 @@ impl DMcfe {
     /// Please not that the sums of these keys across clients
     /// must be equal to zero i.e. ∑fks_skᵢ = 0 for i∈{n}
     pub fn fks_secret_key(&self) -> SecretKey {
-        secret_key(&self.fks_parameters)
+        self.fks_parameters.secret_key()
     }
 
     /// Calculate and decrypt the inner product vector of `<messages , vectors>`
@@ -164,13 +156,8 @@ impl DMcfe {
         functional_key: &FunctionalKey,
         vectors: &[Vec<BigUint>],
     ) -> anyhow::Result<BigUint> {
-        decrypt(
-            &self.parameters,
-            label,
-            cipher_texts,
-            functional_key,
-            vectors,
-        )
+        self.parameters
+            .decrypt(label, cipher_texts, functional_key, vectors)
     }
 }
 
@@ -186,7 +173,7 @@ pub fn fks_secret_keys(fks_parameters: &Parameters) -> anyhow::Result<Vec<Secret
     );
     let mut fks_sk: Vec<SecretKey> = Vec::with_capacity(n);
     for _i in 0..n - 1 {
-        fks_sk.push(secret_key(fks_parameters));
+        fks_sk.push(fks_parameters.secret_key());
     }
 
     let mut last_fks_sk_array: Vec<Vec<BigUint>> = Vec::with_capacity(m);
@@ -221,16 +208,16 @@ pub fn fks_secret_keys(fks_parameters: &Parameters) -> anyhow::Result<Vec<Secret
 #[allow(clippy::needless_range_loop)]
 mod tests {
 
+    use crate::lwe::{
+        common::{create_functional_key_label, tests::paper_params},
+        decentralized::DMcfe,
+        fks_secret_keys,
+        parameters::Parameters,
+        FunctionalKey, FunctionalKeyShare, MasterSecretKey, SecretKey, Setup,
+    };
     use cosmian_crypto_base::cs_prng::Uniform;
     use num_bigint::BigUint;
     use rand::{thread_rng, Rng};
-
-    use super::{super::common::tests::paper_params, fks_secret_keys, DMcfe, Parameters};
-    use crate::lwe::{
-        common::{create_functional_key_label, functional_key},
-        parameters::Setup,
-        FunctionalKey, FunctionalKeyShare, MasterSecretKey, SecretKey,
-    };
 
     #[test]
     fn test_h_y() {
@@ -276,7 +263,7 @@ mod tests {
         // we need as many DMCFE as there are clients
         let mut dmcfes: Vec<DMcfe> = Vec::with_capacity(n);
         for _ in 0..n {
-            let mut dmcfe = DMcfe::instantiate(&params)?;
+            let mut dmcfe = DMcfe::instantiate(params)?;
             dmcfe.new_secret_key();
             dmcfes.push(dmcfe);
         }
@@ -306,7 +293,7 @@ mod tests {
             msk.push(dmcfes[i].sk.as_ref().unwrap().clone());
         }
         // generate the functional key in a centralized way
-        let centralized_fk: FunctionalKey = functional_key(&params, &msk, &vectors)?;
+        let centralized_fk: FunctionalKey = params.functional_key(&msk, &vectors)?;
         //
         // Decentralized
         // generate the functional key share secret keys fks_skᵢ s.t. ∑fks_skᵢ=0, where
@@ -322,7 +309,7 @@ mod tests {
         println!("Generated {} functional key shares", n);
         // recover the function key
         let recovered_fk: FunctionalKey =
-            DMcfe::instantiate(&params)?.recover_functional_key(&fks, &vectors)?;
+            DMcfe::instantiate(params)?.recover_functional_key(&fks, &vectors)?;
         println!("Recombined the functional key");
         // compare
         assert_eq!(n0_m0, recovered_fk.0.len());
@@ -427,7 +414,7 @@ mod tests {
             }
         }
         // recover functional key
-        let consumer = DMcfe::instantiate(&params)?;
+        let consumer = DMcfe::instantiate(params)?;
         let fk: FunctionalKey = consumer.recover_functional_key(&fks, &vectors)?;
         // decryption
         let result = consumer.decrypt(&cts, &label, &fk, &vectors)?;

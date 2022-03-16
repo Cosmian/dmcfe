@@ -4,14 +4,6 @@ version = "0.2.0"
 authors = ["Bruno Grieder <bruno.grieder@cosmian.com>"]
 edition = "2018"
 
-[lib]
-name = "cosmian_mcfe"
-path = "src/lib.rs"
-
-[[bin]]
-name = "cosmian_mcfe"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { package = "eyre", version = "0.6.0" }
 cosmian_crypto_base = "0.1"

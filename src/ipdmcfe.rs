@@ -12,9 +12,9 @@ pub struct CypherText(G1Projective);
 #[derive(Clone)]
 pub struct PrivateKey {
     /// - `s`:  two dimensional scalar vector
-    pub s: DVec<Scalar>,
+    s: DVec<Scalar>,
     /// - `t`:  2x2 scalar matrix
-    pub t: TMat<dsum::CypherText>,
+    t: TMat<dsum::CypherText>,
 }
 
 /// DMCFE partial decryption key type: `di`
@@ -25,7 +25,7 @@ pub struct PartialDecryptionKey(DVec<G2Projective>);
 #[derive(Clone)]
 pub struct DecryptionKey {
     /// - `y`:  decryption function
-    pub y: Vec<Scalar>,
+    y: Vec<Scalar>,
     /// - `d`:  functional decryption key
     d: DVec<G2Projective>,
 }
