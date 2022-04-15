@@ -165,16 +165,6 @@ where
     }
 }
 
-impl<T: Clone> IntoIterator for DVec<T> {
-    type Item = T;
-
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.to_vec().into_iter()
-    }
-}
-
 impl<'a, T> TryFrom<&'a Vec<T>> for DVec<T>
 where
     T: Clone,
