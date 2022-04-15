@@ -67,7 +67,7 @@ struct BroadcastData<T> {
 /// - `bus`:    handle for keeping track of the thread running the bus
 pub struct Bus<T: Clone + Send + Sync> {
     pub tx: BusTx<T>,
-    bus: thread::JoinHandle<Result<()>>,
+    bus: thread::JoinHandle<()>,
 }
 
 impl<T: 'static + Clone + Send + Sync> Bus<T> {
@@ -75,7 +75,7 @@ impl<T: 'static + Clone + Send + Sync> Bus<T> {
     /// - `n`:  number of clients for this bus
     pub fn open(n: usize) -> Self {
         let (tx, rx) = mpsc::channel::<Packet<T>>();
-        let bus = thread::spawn(move || -> Result<()> { launch_bus(rx, n) });
+        let bus = thread::spawn(move || launch_bus(rx, n));
         Bus::<T> { tx, bus }
     }
 
@@ -84,7 +84,7 @@ impl<T: 'static + Clone + Send + Sync> Bus<T> {
         safe_send(&self.tx, Packet::SigTerm)?;
         self.bus
             .join()
-            .map_err(|err| eyre::eyre!("Error Join: {:?}", err))?
+            .map_err(|err| eyre::eyre!("Error Join: {:?}", err))
     }
 }
 
@@ -111,9 +111,9 @@ impl<T: Clone> BusQueues<T> {
     /// Manage fetch requests.
     /// - `request`:    fetch request
     /// - `n`:          number of clients
-    fn manage_fetch(&mut self, request: FetchRequest<T>) -> Result<()> {
+    fn manage_fetch(&mut self, request: FetchRequest<T>) {
         if request.id < self.n {
-            self.send_data(request)?;
+            self.send_data(request).expect("Bus should not fail");
         } else {
             safe_send(
                 &request.tx,
@@ -122,9 +122,9 @@ impl<T: Clone> BusQueues<T> {
                     request.id,
                     self.n - 1
                 )),
-            )?;
+            )
+            .expect("Bus should not fail");
         }
-        Ok(())
     }
 
     /// Send all data associated with the client ID of the fetch request
@@ -170,10 +170,14 @@ impl<T: Clone> BusQueues<T> {
                     if self.private[unicast.id].len() < MAX_SIZE {
                         self.private[unicast.id].push(unicast.data);
                     } else {
-                        eyre::eyre!("Cannot send data to client {}, queue is full!", unicast.id);
+                        println!(
+                            "Cannot send data to client {}, queue is full ({} elements)!",
+                            unicast.id,
+                            self.private[unicast.id].len()
+                        );
                     }
                 } else {
-                    eyre::eyre!("Cannot send data to client {}", unicast.id);
+                    println!("Cannot send data to client {}", unicast.id);
                 }
             }
         }
@@ -183,20 +187,17 @@ impl<T: Clone> BusQueues<T> {
 /// Simulate the bus.
 /// - `rx`: bus reception channel
 /// - `n`:  number of clients
-fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
+fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) {
     // DB where data are stored, waiting for the receiver to fetch them
     let mut db = BusQueues::new(n);
 
     // listen for requests
     loop {
-        match rx
-            .recv()
-            .map_err(|err| eyre::eyre!("Receive Error: {:?}", err))?
-        {
+        match rx.recv().expect("Bus should not fail!") {
             Packet::SendRequest(request) => db.manage_send(request),
-            Packet::FetchRequest(request) => db.manage_fetch(request)?,
-            Packet::SigTerm => return Ok(()),
-        }
+            Packet::FetchRequest(request) => db.manage_fetch(request),
+            Packet::SigTerm => break,
+        };
     }
 }
 
@@ -242,7 +243,7 @@ pub fn get<T>(tx: &BusTx<T>, id: usize) -> Result<Vec<T>> {
 
     while let Some(data) = client_rx
         .recv()
-        .map_err(|err| eyre::eyre!("Error Receive: {:?}", err))??
+        .map_err(|err| eyre::eyre!("Client {} Error ({:?})", id, err))??
     {
         res.push(data);
     }
@@ -270,22 +271,35 @@ pub fn wait_n<T>(tx: &BusTx<T>, n: usize, id: usize) -> Result<Vec<T>> {
 
 mod test {
     use eyre::Result;
+    use num::Zero;
     use rand::Rng;
-    use std::thread;
+    use std::{
+        sync::{Arc, Mutex},
+        thread,
+        time::Duration,
+    };
 
     fn simulate_send_client(
         id: usize,
-        data: &[usize],
-        receiver: usize,
-        tx: &super::BusTx<usize>,
+        flag: Arc<Mutex<usize>>,
+        data: Vec<(usize, usize)>,
+        tx: super::BusTx<usize>,
     ) -> Result<Vec<usize>> {
         // load all data inside the bus
-        for &datum in data.iter() {
-            super::unicast(tx, receiver, datum)?;
+        for &(receiver, datum) in data.iter() {
+            super::unicast(&tx, receiver, datum)?;
+        }
+
+        // synchronization point
+        let mut val = flag.lock().unwrap();
+        *val -= 1;
+        drop(val);
+        while !flag.lock().unwrap().is_zero() {
+            thread::sleep(Duration::from_secs(1));
         }
 
         // get the data sent to this client
-        super::get(tx, id)
+        super::get(&tx, id)
     }
 
     fn simulate_broadcast_client(
@@ -307,6 +321,7 @@ mod test {
 
     #[test]
     fn test_bus_send() -> Result<()> {
+        // number of clients
         let n = rand::thread_rng().gen_range(10..20);
 
         // launch the bus client
@@ -314,50 +329,65 @@ mod test {
 
         // use two successive steps in order to assert that data disappears from the bus when it is fetched
         for step in 1..3 {
-            // Each client send a random amount of data to another random client.
+            let mut data: Vec<Vec<(usize, usize)>> = Vec::with_capacity(n);
             let mut clients = Vec::with_capacity(n);
-            let mut data =
-                vec![vec![rand::random::<usize>(); rand::thread_rng().gen_range(10..20)]; n];
-            let receivers = vec![rand::random::<usize>(); n];
-
-            // launch the clients
+            // flag to use for synchronisation: all threads should have sent
+            // their data before any of them starts fetching
+            let flag = Arc::new(Mutex::new(n));
             for id in 0..n {
                 let tx = bus.tx.clone();
-                let data = data[id].to_vec();
-                let receiver = receivers[id];
+                let flag = flag.clone();
+                let m: usize = rand::thread_rng().gen_range(0..9);
+                // list of datum elements to send to a receiver
+                data.push(
+                    (0..m)
+                        .map(|_| -> (usize, usize) {
+                            let mut receiver = id;
+                            while id == receiver {
+                                receiver = rand::random::<usize>() % n;
+                            }
+                            (receiver, rand::random())
+                        })
+                        .collect(),
+                );
+                let local_data = data[id].clone();
                 clients.push(thread::spawn(move || {
-                    simulate_send_client(id, &data, receiver, &tx)
+                    simulate_send_client(id, flag, local_data, tx)
                 }));
             }
 
-            // get the results from the clients
             for (id, client) in clients.into_iter().enumerate() {
-                let mut res = Vec::new();
-                data.iter_mut().enumerate().for_each(|(i, data)| {
-                    if id == receivers[i] {
-                        res.append(data);
+                // expected result for a given client
+                let mut expected_res = Vec::with_capacity(n * 20);
+                for client_data in data.iter() {
+                    for (receiver, datum) in client_data.iter() {
+                        if id == *receiver {
+                            expected_res.push(*datum);
+                        }
                     }
-                });
-
+                }
+                // actual result for a given client
                 let mut client_res = client.join().unwrap()?;
-                res.sort_unstable();
+                // result got are sorted because the distributed nature of the
+                // test does not guarantee any order
+                expected_res.sort_unstable();
                 client_res.sort_unstable();
 
                 eyre::ensure!(
-                    res.len() == client_res.len(),
-                    "Error in step {}: wrong number of data received!\n
-                {}, should be {}",
-                    step,
+                    expected_res.len() == client_res.len(),
+                    "Error in step {step}: client {id} received {}, should be {}",
                     client_res.len(),
-                    res.len()
+                    expected_res.len()
                 );
 
-                for (res, client_res) in res.iter().zip(client_res.iter()) {
-                    eyre::ensure!(res == client_res, "Error: got wrong data from the bus!");
+                for (expected_res, client_res) in expected_res.iter().zip(client_res.iter()) {
+                    eyre::ensure!(
+                        expected_res == client_res,
+                        "Error: got wrong data from the bus!"
+                    );
                 }
             }
         }
-
         // close the bus
         bus.close()
     }
