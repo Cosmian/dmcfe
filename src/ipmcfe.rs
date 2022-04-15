@@ -64,7 +64,7 @@ pub fn encrypt(eki: &PrivateKey, xi: &[Scalar], label: &types::Label) -> Result<
 
     // add an IPFE layer to secure the multiple contributions
     let u_l = tools::hash_to_curve(label.as_ref());
-    let r2 = eki.msk.iter().map(|&ipfe::PrivateKey(mski)| u_l * mski);
+    let r2 = eki.msk.iter().map(|mski| u_l * mski);
     Ok(ci.zip(r2).map(|(cij, r)| CypherText(r + cij)).collect())
 }
 

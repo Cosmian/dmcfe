@@ -85,7 +85,7 @@ impl TMat<Scalar> {
 
 /// 2 dimensional vector
 #[derive(Clone, Copy, Default)]
-pub struct DVec<T>(pub [T; 2]);
+pub struct DVec<T>(pub(crate) [T; 2]);
 
 impl<T> DVec<T> {
     pub fn new(a: (T, T)) -> Self {

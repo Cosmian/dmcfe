@@ -1,10 +1,11 @@
 use crate::tools;
 use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
+use std::ops::Mul;
 
-/// IPFE private key type
-#[derive(Clone, Copy)]
-pub struct PrivateKey(pub Scalar);
+/// IPFE private key type.
+#[derive(Clone, Copy, Default)]
+pub struct PrivateKey(Scalar);
 
 impl std::ops::Deref for PrivateKey {
     type Target = Scalar;
@@ -14,13 +15,36 @@ impl std::ops::Deref for PrivateKey {
     }
 }
 
-/// IPFE public key type
+impl PrivateKey {
+    /// Generate a new private key.
+    pub fn new() -> Self {
+        Self(tools::random_scalar())
+    }
+}
+
+impl<'a> Mul<&'a PrivateKey> for G1Projective {
+    type Output = G1Projective;
+
+    fn mul(self, rhs: &'a PrivateKey) -> Self::Output {
+        self * rhs.0
+    }
+}
+
+/// IPFE public key type.
 #[derive(Clone, Copy)]
-pub struct PublicKey(pub G1Projective);
+pub struct PublicKey(G1Projective);
+
+impl PublicKey {
+    /// Generate a new public key associated to the given private key
+    #[inline]
+    pub fn new(sk: &PrivateKey) -> Self {
+        Self(G1Projective::generator() * sk.0)
+    }
+}
 
 /// IPFE decryption key type
 #[derive(Clone, Copy)]
-pub struct DecryptionKey(pub Scalar);
+pub struct DecryptionKey(Scalar);
 
 /// IPFE cyphertext structure
 pub struct CypherText {
@@ -35,12 +59,8 @@ pub struct CypherText {
 ///
 /// - l: dimension of the vector space
 pub fn setup(l: usize) -> (Vec<PrivateKey>, Vec<PublicKey>) {
-    let msk = (0..l)
-        .map(|_| PrivateKey(tools::random_scalar()))
-        .collect::<Vec<_>>();
-    let mpk = (0..l)
-        .map(|i| PublicKey(tools::smul_in_g1(&msk[i])))
-        .collect();
+    let msk = (0..l).map(|_| PrivateKey::new()).collect::<Vec<_>>();
+    let mpk = (0..l).map(|i| PublicKey::new(&msk[i])).collect();
     (msk, mpk)
 }
 
