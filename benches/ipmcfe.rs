@@ -1,21 +1,24 @@
 use cosmian_bls12_381::Scalar;
 use criterion::{criterion_group, criterion_main, Criterion};
 use dmcfe::{ipmcfe::*, types::Label};
+use rand::rngs::ThreadRng;
 
 fn bench_encrypt(c: &mut Criterion) {
+    let mut rng = ThreadRng::default();
     // number of contributions per client
     let m = 1;
     // messages
     let x = vec![Scalar::from_raw([rand::random(); 4]); m];
     // label
-    let label = Label::new().unwrap();
-    let ek = setup(m);
+    let label = Label::new();
+    let ek = setup(m, &mut rng);
     c.bench_function("Encrypt one client, one contrib:", |b| {
         b.iter(|| encrypt(&ek, &x, &label).unwrap())
     });
 }
 
 fn bench_decrypt(c: &mut Criterion) {
+    let mut rng = ThreadRng::default();
     // number of clients
     let n = 10;
     // number of contributions per client
@@ -25,8 +28,8 @@ fn bench_decrypt(c: &mut Criterion) {
     // decryption function
     let y = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // label
-    let label = Label::new().unwrap();
-    let msk: Vec<PrivateKey> = (0..n).map(|_| setup(m)).collect();
+    let label = Label::new();
+    let msk: Vec<PrivateKey> = (0..n).map(|_| setup(m, &mut rng)).collect();
     let ctx = x
         .iter()
         .zip(msk.iter())

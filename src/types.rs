@@ -14,16 +14,16 @@ use std::{
 pub struct TMat<T>(pub(crate) [[T; 2]; 2]);
 
 impl<T> Deref for TMat<T> {
-    type Target = [[T; 2]; 2];
+    type Target = [[T; 2]];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.as_slice()
     }
 }
 
 impl<T> DerefMut for TMat<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.0.as_mut_slice()
     }
 }
 
@@ -75,7 +75,7 @@ impl TMat<Scalar> {
             for j in 0..2 {
                 res[i][j] = mat_list
                     .iter()
-                    .map(|tj| tools::h(l.as_ref(), &self[i][j], &tj[i][j]))
+                    .map(|tj| tools::h(l, &self[i][j], &tj[i][j]))
                     .sum()
             }
         }
@@ -84,12 +84,18 @@ impl TMat<Scalar> {
 }
 
 /// 2 dimensional vector
-#[derive(Clone, Copy, Default)]
-pub struct DVec<T>(pub [T; 2]);
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct DVec<T>([T; 2]);
 
 impl<T> DVec<T> {
-    pub fn new(a: (T, T)) -> Self {
-        DVec([a.0, a.1])
+    pub fn new(a: T, b: T) -> Self {
+        Self([a, b])
+    }
+}
+
+impl<T> From<(T, T)> for DVec<T> {
+    fn from(e: (T, T)) -> Self {
+        Self([e.0, e.1])
     }
 }
 
@@ -109,10 +115,16 @@ impl<T: Clone> DVec<T> {
 }
 
 impl<T> Deref for DVec<T> {
-    type Target = [T; 2];
+    type Target = [T];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0.as_slice()
+    }
+}
+
+impl<T> DerefMut for DVec<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut_slice()
     }
 }
 
@@ -130,34 +142,33 @@ where
 
 impl<T> Add for DVec<T>
 where
-    T: Add<Output = T> + Clone,
+    T: AddAssign + Clone,
 {
     type Output = DVec<T>;
 
-    fn add(mut self, rhs: Self) -> Self::Output {
-        self += rhs;
-        self
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut res = self;
+        res += rhs;
+        res
     }
 }
 
 impl<T> AddAssign for DVec<T>
 where
-    T: Add<Output = T> + Clone,
+    T: AddAssign + Clone,
 {
     fn add_assign(&mut self, rhs: Self) {
-        *self = DVec([
-            self[0].clone() + rhs[0].clone(),
-            self[1].clone() + rhs[1].clone(),
-        ]);
+        self[0] += rhs[0].clone();
+        self[1] += rhs[1].clone();
     }
 }
 
 impl<T> Sum for DVec<T>
 where
-    T: Add<Output = T> + Clone + Default,
+    T: AddAssign + Clone + Default,
 {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        let mut res = Default::default();
+        let mut res = DVec::default();
         for dvec in iter {
             res += dvec;
         }
@@ -171,20 +182,21 @@ impl<T: Clone> IntoIterator for DVec<T> {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
+        #[allow(clippy::unnecessary_to_owned)]
         self.0.to_vec().into_iter()
     }
 }
 
-impl<'a, T> TryFrom<&'a Vec<T>> for DVec<T>
+impl<'a, T> TryFrom<&'a [T]> for DVec<T>
 where
     T: Clone,
 {
     type Error = &'static str;
 
-    fn try_from(value: &'a Vec<T>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a [T]) -> Result<Self, Self::Error> {
         match value.len() {
             2 => Ok(DVec([value[0].clone(), value[1].clone()])),
-            _ => Err("SizeError"),
+            _ => Err("SizeError: length 2 was expected"),
         }
     }
 }
@@ -194,20 +206,30 @@ where
 pub struct Label(Vec<u8>);
 
 impl Label {
-    /// Get the timestamp as a label. Round to minutes.
-    pub fn new() -> Result<Self> {
-        Ok(Self(
-            (SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
+    /// Gets the timestamp as a label. Rounds to minutes.
+    pub fn new() -> Self {
+        Self(
+            (SystemTime::elapsed(&SystemTime::UNIX_EPOCH)
+                .expect("SystemTime before UNIX_EPOCH!")
                 .as_secs()
                 / 60)
-                .to_be_bytes()
+                .to_le_bytes()
                 .to_vec(),
-        ))
+        )
     }
 
-    pub fn aggregate(&mut self, r: &[u8]) {
-        self.0.append(&mut r.to_vec());
+    /// Aggregate the given byte-vector to the `Label`.
+    pub fn aggregate<T>(&mut self, r: T)
+    where
+        Vec<u8>: From<T>,
+    {
+        self.0.append(&mut r.into());
+    }
+}
+
+impl Default for Label {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -221,12 +243,15 @@ impl From<&[Scalar]> for Label {
     fn from(v: &[Scalar]) -> Self {
         let mut res: Vec<u8> = vec![];
         v.iter()
-            .for_each(|val| res.append(&mut val.to_bytes().to_vec()));
+            .for_each(|val| res.append(&mut val.to_bytes().into()));
         Label(res)
     }
 }
-impl AsRef<[u8]> for Label {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
+
+impl Deref for Label {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_slice()
     }
 }

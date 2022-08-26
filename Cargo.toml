@@ -1,13 +1,19 @@
 [package]
 name = "dmcfe"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
+authors = [
+  "Théophile Brezot <theophile.brezot@cosmian.com>",
+]
+description = "Different flavors of functional encryption"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/Cosmian/DMCFE"
 
 [dependencies]
 cosmian_bls12_381 = {git = "https://github.com/Cosmian/bls12_381.git", branch = "add_gt_hash"}
-rand = "0.8.4"
 sha2 = "0.9.5"
 eyre = "0.6.5"
+rand_core = "0.6.3"
 
 [dev-dependencies]
 criterion = "0.3"

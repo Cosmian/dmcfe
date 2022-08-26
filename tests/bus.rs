@@ -159,7 +159,7 @@ impl<T: Clone> BusQueues<T> {
     }
 
     /// Manage the send requests.
-    fn manage_send(&mut self, send_request: SendRequest<T>) {
+    fn manage_send(&mut self, send_request: SendRequest<T>) -> Result<()> {
         match send_request {
             SendRequest::BroadcastRequest(broadcast) => self.public.push(BroadcastData {
                 data: broadcast.data,
@@ -170,13 +170,14 @@ impl<T: Clone> BusQueues<T> {
                     if self.private[unicast.id].len() < MAX_SIZE {
                         self.private[unicast.id].push(unicast.data);
                     } else {
-                        eyre::eyre!("Cannot send data to client {}, queue is full!", unicast.id);
+                        // drop packet
                     }
                 } else {
-                    eyre::eyre!("Cannot send data to client {}", unicast.id);
+                    // drop packet
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -193,7 +194,7 @@ fn launch_bus<T: Clone>(rx: mpsc::Receiver<Packet<T>>, n: usize) -> Result<()> {
             .recv()
             .map_err(|err| eyre::eyre!("Receive Error: {:?}", err))?
         {
-            Packet::SendRequest(request) => db.manage_send(request),
+            Packet::SendRequest(request) => db.manage_send(request)?,
             Packet::FetchRequest(request) => db.manage_fetch(request)?,
             Packet::SigTerm => return Ok(()),
         }

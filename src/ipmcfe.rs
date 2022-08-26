@@ -3,10 +3,11 @@
 use crate::{ipfe, tools, types};
 use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
+use rand_core::{CryptoRng, RngCore};
 use std::convert::TryFrom;
 
 /// MCFE cyphertext type
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug)]
 pub struct CypherText(G1Projective);
 
 impl<'a> std::iter::FromIterator<&'a CypherText> for Vec<G1Projective> {
@@ -25,6 +26,7 @@ pub struct PrivateKey {
 }
 
 /// MCFE decryption key type
+#[derive(Clone)]
 pub struct DecryptionKey {
     /// - `y`    : the decryption function
     pub(crate) y: Vec<Vec<Scalar>>,
@@ -36,10 +38,10 @@ pub struct DecryptionKey {
 
 /// Compute the client encryption keys.
 /// - `m`: number of contributions per client
-pub fn setup(m: usize) -> PrivateKey {
-    let (msk, _) = ipfe::setup(m);
+pub fn setup<R: CryptoRng + RngCore>(m: usize, rng: &mut R) -> PrivateKey {
+    let (msk, _) = ipfe::setup(m, rng);
     PrivateKey {
-        s: tools::random_mat_gen(m, 2),
+        s: tools::random_mat_gen(m, 2, rng),
         msk,
     }
 }
@@ -55,12 +57,12 @@ pub fn encrypt(eki: &PrivateKey, xi: &[Scalar], label: &types::Label) -> Result<
         xi.len(),
         eki.msk.len()
     );
-    let (p1, p2) = tools::double_hash_to_curve_in_g1(label.as_ref());
-    let r1 = tools::mat_mul(&eki.s, &[p1, p2])?;
+    let p = types::DVec::from(tools::double_hash_to_curve_in_g1(label.as_ref()));
+    let r1 = tools::mat_mul(&eki.s, &p)?;
     let ci = xi
         .iter()
         .zip(r1.iter())
-        .map(|(xij, r)| r + G1Projective::generator() * xij);
+        .map(|(xij, r)| tools::smul_in_g1(xij) + r);
 
     // add an IPFE layer to secure the multiple contributions
     let u_l = tools::hash_to_curve(label.as_ref());
@@ -78,12 +80,14 @@ pub fn dkey_gen(msk: &[PrivateKey], y: &[Vec<Scalar>]) -> Result<DecryptionKey> 
         y.len(),
         msk.len()
     );
-    let mut d = types::DVec::new((Scalar::zero(), Scalar::zero()));
+    let mut d = types::DVec::new(Scalar::zero(), Scalar::zero());
     let mut ip_dk = Vec::with_capacity(y.len());
     for (ski, yi) in msk.iter().zip(y.iter()) {
         ip_dk.push(ipfe::key_gen(&ski.msk, yi)?);
-        d += types::DVec::try_from(&tools::scal_mat_mul_dim_2(&tools::transpose(&ski.s)?, yi)?)
-            .map_err(|_| eyre::eyre!("Cannot convert the given dki into a DVec!"))?;
+        d += types::DVec::try_from(
+            tools::scal_mat_mul_dim_2(&tools::transpose(&ski.s)?, yi)?.as_slice(),
+        )
+        .map_err(|_| eyre::eyre!("Cannot convert the given dki into a DVec!"))?;
     }
     Ok(DecryptionKey {
         y: y.to_vec(),
@@ -123,6 +127,6 @@ pub fn decrypt(
         })
         .sum();
 
-    let u = types::DVec::new(tools::double_hash_to_curve_in_g1(label.as_ref()));
+    let u = types::DVec::from(tools::double_hash_to_curve_in_g1(label.as_ref()));
     Ok(d_l - u.inner_product(&dk_y.d))
 }

@@ -5,7 +5,7 @@ mod bus;
 use cosmian_bls12_381::Scalar;
 use dmcfe::{dsum, types::Label};
 use eyre::Result;
-use rand::Rng;
+use rand::{rngs::ThreadRng, Rng};
 use std::thread;
 
 fn client_simulation(
@@ -16,8 +16,10 @@ fn client_simulation(
     pk_bus_tx: &bus::BusTx<dsum::PublicKey>,
     data_bus_tx: &bus::BusTx<dsum::CypherText>,
 ) -> Result<Scalar> {
+    let mut rng = ThreadRng::default();
+
     // generate key pair
-    let dsum::KeyPair(ski, pki) = dsum::client_setup();
+    let dsum::KeyPair(ski, pki) = dsum::client_setup(&mut rng);
 
     // publish the public key
     bus::broadcast(pk_bus_tx, pki)?;
@@ -87,7 +89,7 @@ fn test_dsum() -> Result<()> {
     let message = vec![vec![Scalar::from_raw([rand::random(); 4]); n_contrib]; n_clients];
 
     // label
-    let label = Label::new()?;
+    let label = Label::new();
 
     // compute the solution `Sum(x_ij)`
     let s: Scalar = message.iter().map(|xi| xi.iter().sum::<Scalar>()).sum();
