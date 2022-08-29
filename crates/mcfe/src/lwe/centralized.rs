@@ -1,11 +1,9 @@
-use anyhow::ContextCompat as _;
-use num_bigint::BigUint;
-
-// use super::labels::Labels;
 use super::{
     parameters::{Parameters, Setup},
     FunctionalKey, MasterSecretKey,
 };
+use anyhow::ContextCompat as _;
+use num_bigint::BigUint;
 
 /// Implementation of a (Centralized) Multi-Client Inner-Product Functional
 /// Encryption in the Random-Oracle Model
@@ -20,15 +18,13 @@ use super::{
 pub struct Mcfe {
     pub(crate) parameters: Parameters,
     pub(crate) msk: Option<MasterSecretKey>,
-    // pub(crate) labels: Labels,
 }
 
 impl Mcfe {
-    pub fn new(parameters: &Parameters) -> Mcfe {
+    pub fn new(parameters: Parameters) -> Mcfe {
         Mcfe {
-            parameters: parameters.clone(),
+            parameters,
             msk: None,
-            // labels: Labels::new(parameters.n0 + parameters.m0, &parameters.q),
         }
     }
 
@@ -37,7 +33,7 @@ impl Mcfe {
     ///     Ok(McFeRoM::new(Parameters::setup(setup)?))
     /// ```
     pub fn setup(setup: &Setup) -> anyhow::Result<Mcfe> {
-        Ok(Mcfe::new(&Parameters::instantiate(setup)?))
+        Ok(Mcfe::new(Parameters::instantiate(setup)?))
     }
 
     /// Generate a Master Secret Key and set it on the MCFE instance
@@ -77,8 +73,7 @@ impl Mcfe {
             .msk
             .as_ref()
             .context("The master secret key must be generated first")?;
-        let secret_key = &msk[client];
-        self.parameters.encrypt(label, message, secret_key)
+        self.parameters.encrypt(label, message, &msk[client])
     }
 
     /// Issue a functional key for the `vectors`.
@@ -121,12 +116,11 @@ impl Mcfe {
 #[cfg(test)]
 mod tests {
 
+    use super::{super::common::tests::paper_params, Mcfe, Parameters};
+    use crate::lwe::parameters::Setup;
     use cosmian_crypto_base::distributions::Uniform;
     use num_bigint::BigUint;
     use rand::Rng;
-
-    use super::{super::common::tests::paper_params, Mcfe, Parameters};
-    use crate::lwe::parameters::Setup;
 
     fn test_encryption_decryption(params: &Parameters) -> anyhow::Result<()> {
         println!("Parameters: {}", params);
@@ -156,7 +150,7 @@ mod tests {
             }
         }
         //Instantiate MCFE
-        let mut mcfe = Mcfe::new(params);
+        let mut mcfe = Mcfe::new(params.to_owned());
         // master key generation
         mcfe.new_master_secret_key();
         // derived key generation
