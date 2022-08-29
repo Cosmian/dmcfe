@@ -1,7 +1,9 @@
 use crate::lwe::{common, FunctionalKey, FunctionalKeyShare, MasterSecretKey, SecretKey};
 use anyhow::Result;
-use cosmian_crypto_base::cs_prng::{Normal, Uniform};
-use cosmian_crypto_base::primes::closest_primes_to_power_of_2;
+use cosmian_crypto_base::{
+    distributions::{Normal, Uniform},
+    primes::closest_primes_to_power_of_2,
+};
 use num_bigint::{BigInt, BigUint};
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};

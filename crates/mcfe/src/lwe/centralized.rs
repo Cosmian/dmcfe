@@ -121,7 +121,7 @@ impl Mcfe {
 #[cfg(test)]
 mod tests {
 
-    use cosmian_crypto_base::cs_prng::Uniform;
+    use cosmian_crypto_base::distributions::Uniform;
     use num_bigint::BigUint;
     use rand::Rng;
 

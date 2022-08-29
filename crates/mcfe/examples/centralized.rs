@@ -1,4 +1,4 @@
-use cosmian_crypto_base::cs_prng::Uniform;
+use cosmian_crypto_base::distributions::Uniform;
 use cosmian_mcfe::lwe::{Mcfe, Parameters, Setup};
 use num_bigint::BigUint;
 use rand::Rng;

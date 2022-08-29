@@ -39,7 +39,7 @@ pub(crate) mod tests {
         create_label_vector,
     };
     use crate::lwe::parameters::Setup;
-    use cosmian_crypto_base::cs_prng::Uniform;
+    use cosmian_crypto_base::distributions::Uniform;
     use num_bigint::BigUint;
     use rand::{thread_rng, Rng};
     use std::{thread, time::Instant};
