@@ -1,4 +1,4 @@
-use cosmian_crypto_base::cs_prng::Uniform;
+use cosmian_crypto_base::distributions::Uniform;
 use cosmian_mcfe::lwe::{
     fks_secret_keys, DMcfe, FunctionalKey, FunctionalKeyShare, Parameters, SecretKey, Setup,
 };

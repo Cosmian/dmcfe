@@ -1,4 +1,4 @@
-use cosmian_crypto_base::cs_prng::Uniform;
+use cosmian_crypto_base::distributions::Uniform;
 use cosmian_mcfe::lwe::{Mcfe, Parameters, Setup};
 use num_bigint::BigUint;
 use rand::Rng;
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     //Instantiate MCFE
-    let mut mcfe = Mcfe::new(&params);
+    let mut mcfe = Mcfe::new(params);
     // master key generation
     mcfe.new_master_secret_key();
     // derived key generation

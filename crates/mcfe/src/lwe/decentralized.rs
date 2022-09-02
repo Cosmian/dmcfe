@@ -215,7 +215,7 @@ mod tests {
         parameters::Parameters,
         FunctionalKey, FunctionalKeyShare, MasterSecretKey, SecretKey, Setup,
     };
-    use cosmian_crypto_base::cs_prng::Uniform;
+    use cosmian_crypto_base::distributions::Uniform;
     use num_bigint::BigUint;
     use rand::{thread_rng, Rng};
 

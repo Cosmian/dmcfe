@@ -5,12 +5,8 @@ edition = "2018"
 
 [dependencies]
 cosmian_bls12_381 = {git = "https://github.com/Cosmian/bls12_381.git", branch = "add_gt_hash"}
-rand = "0.8.4"
-sha2 = "0.9.5"
-generic-array = "0.14.4"
-eyre = "0.6.5"
-subtle = "2.4.1"
-num = "0.4.0"
-bytes = "1.1.0"
-sha1 = "0.6.0"
 cosmian_mcfe = { path = "crates/mcfe" }
+rand = "0.8"
+sha2 = "0.9"
+eyre = "0.6"
+subtle = "2.4"

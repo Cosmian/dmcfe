@@ -1,8 +1,11 @@
 use crate::lwe::{common, FunctionalKey, FunctionalKeyShare, MasterSecretKey, SecretKey};
 use anyhow::Result;
-use cosmian_crypto_base::cs_prng::{Normal, Uniform};
-use cosmian_crypto_base::primes::closest_primes_to_power_of_2;
+use cosmian_crypto_base::{
+    distributions::{Normal, Uniform},
+    primes::closest_primes_to_power_of_2,
+};
 use num_bigint::{BigInt, BigUint};
+use num_traits::{One, Zero};
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
@@ -139,11 +142,11 @@ impl Parameters {
         // this is used in encrypt
         let q_div_k = &q / &k;
         // ⌊q/2⌋ - used for rounding
-        let half_q: BigUint = &q / 2u32;
+        let half_q = &q / 2u32;
         // ⌊q0*q/k⌋ - used for rounding in decryption
-        let q0_q_div_k: BigUint = &q0 * &q_div_k;
+        let q0_q_div_k = &q0 * &q_div_k;
         // ⌊q0*q/2k⌋ - used for rounding in decryption
-        let q0_q_div_2k: BigUint = &q0_q_div_k / 2u32;
+        let q0_q_div_2k = &q0_q_div_k / 2u32;
 
         Ok(Parameters {
             clients: setup.clients,
@@ -194,7 +197,7 @@ impl Parameters {
         // TODO: see if these random number generators should not be given as argument
         // indeed, without seed, to randomly generated sequences may be identical
         let mut uniform_cs_prng = Uniform::new();
-        let mut normal_cs_prng = Normal::new(&BigInt::from(0i32), &self.sigma);
+        let mut normal_cs_prng = Normal::new(&BigInt::zero(), &self.sigma);
 
         SecretKey(
             (0..self.message_length)
@@ -276,8 +279,7 @@ impl Parameters {
             self.clients,
         );
 
-        let mut sky_share: FunctionalKey =
-            FunctionalKey(vec![BigUint::from(0u32); self.n0 + self.m0]);
+        let mut sky_share = FunctionalKey(vec![BigUint::zero(); self.n0 + self.m0]);
 
         for (z_i, y_i) in msk.iter().zip(y.iter()) {
             let sky_i = self.clear_text_functional_key_share(z_i, y_i)?;
@@ -306,7 +308,7 @@ impl Parameters {
             self.message_length,
         );
 
-        let mut sky_share = vec![BigUint::from(0u32); self.n0 + self.m0];
+        let mut sky_share = vec![BigUint::zero(); self.n0 + self.m0];
 
         for (y_ij, z_ij) in y_i.iter().zip(z_i.0.iter()) {
             anyhow::ensure!(
@@ -407,10 +409,11 @@ impl Parameters {
         // encryption of all µⱼ for j ∈{n₀+m₀}
         let sky_i = self.clear_text_functional_key_share(secret_key, &vectors[client])?;
         // encrypt it
-        let mut enc_fks: Vec<BigUint> = Vec::with_capacity(n0_m0);
+        let mut enc_fks = Vec::with_capacity(n0_m0);
         for (idx, sky_i_j) in sky_i.iter().enumerate() {
             // no label reuse - add counter
-            let mut this_label = idx.to_be_bytes().to_vec();
+            let mut this_label = Vec::with_capacity(4 + h_y_label.len());
+            this_label.extend_from_slice((idx as u32).to_be_bytes().as_slice());
             this_label.extend_from_slice(&h_y_label);
             enc_fks.push(
                 fks_parameters.encrypt(&this_label, &[sky_i_j.clone()], fks_secret_key)?[0].clone(),
@@ -434,20 +437,20 @@ impl Parameters {
         // perform the scalar products of <Enc(sk_j),1>
         // the vector to perform the n₀+m₀ scalar product over the n encrypted
         // functional key shares
-        let fks_vectors = vec![vec![BigUint::from(1u32)]; self.clients];
+        let fks_vectors = vec![vec![BigUint::one()]; self.clients];
         // the functional key is a vector of length  n₀+m₀ filled with zeroes:
         // since the functional_key_vectors is filled with 1, ∑skᵢ.yᵢ = ∑skᵢ = 0 by
         // construction
-        let fks_functional_key = FunctionalKey(vec![BigUint::from(0u32); fks_n0_m0]);
+        let fks_functional_key = FunctionalKey(vec![BigUint::zero(); fks_n0_m0]);
         // the H(y) used is a hash of all the vectors that get into the final functional
         // computation
         let h_y_label = common::create_functional_key_label(vectors);
         // we need to perform the scalar product for the n₀+m₀ vectors
         // across the n clients
-        let mut functional_key: Vec<BigUint> = Vec::with_capacity(self.n0 + self.m0);
+        let mut functional_key = Vec::with_capacity(self.n0 + self.m0);
         for j in 0..(self.n0 + self.m0) {
             // assemble all the functional key shares from all client for that j
-            let mut fks_j: Vec<Vec<BigUint>> = Vec::with_capacity(self.clients);
+            let mut fks_j = Vec::with_capacity(self.clients);
             for fks_i in functional_key_shares {
                 fks_j.push(vec![fks_i.0[j].clone()]);
             }
