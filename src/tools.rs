@@ -10,6 +10,8 @@ use std::cmp::Ordering;
 const DST: &[u8] = b"simple_DST";
 
 /// Draw a random scalar from Fp.
+///
+/// - `rng` : random number generator
 #[inline]
 pub(crate) fn random_scalar<R: CryptoRng + RngCore>(rng: &mut R) -> Scalar {
     let mut bytes = [0; 64];
@@ -71,8 +73,9 @@ pub(crate) fn hash_to_scalar(
 }
 
 /// generate a random `(m,n)` matrix of `Fp` elements.
-/// - `m`:  matrix size 1;
-/// - `n`:  matrix size 2.
+/// - `m`   :  matrix size 1;
+/// - `n`   :  matrix size 2.
+/// - `rng` : random number generator
 pub(crate) fn random_mat_gen<R: RngCore + CryptoRng>(
     m: usize,
     n: usize,

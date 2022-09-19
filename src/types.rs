@@ -3,11 +3,8 @@ use cosmian_bls12_381::{G1Projective, Scalar};
 use eyre::Result;
 use std::convert::TryFrom;
 use std::ops::AddAssign;
+use std::ops::{Add, Deref, DerefMut, Mul};
 use std::time::SystemTime;
-use std::{
-    iter::Sum,
-    ops::{Add, Deref, DerefMut, Mul},
-};
 
 /// DMCFE `T` matrix
 #[derive(Clone, Default)]
@@ -84,7 +81,7 @@ impl TMat<Scalar> {
 }
 
 /// 2 dimensional vector
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct DVec<T>([T; 2]);
 
 impl<T> DVec<T> {
@@ -99,18 +96,21 @@ impl<T> From<(T, T)> for DVec<T> {
     }
 }
 
-impl<T: Clone> DVec<T> {
+impl<'t, 'u, T: Clone> DVec<T> {
     /// Convert a DVec into a vector of size 2
     pub fn to_vec(&self) -> Vec<T> {
         vec![self[0].clone(), self[1].clone()]
     }
 
-    pub fn inner_product<U: Clone>(&self, v: &DVec<U>) -> <<T as Mul<U>>::Output as Add>::Output
+    pub fn inner_product<U: Clone>(
+        &'t self,
+        v: &'u DVec<U>,
+    ) -> <<&'t T as Mul<&'u U>>::Output as Add>::Output
     where
-        T: Mul<U>,
-        <T as Mul<U>>::Output: Add,
+        &'t T: Mul<&'u U>,
+        <&'t T as Mul<&'u U>>::Output: Add,
     {
-        self[0].clone() * v[0].clone() + self[1].clone() * v[1].clone()
+        &self[0] * &v[0] + &self[1] * &v[1]
     }
 }
 
@@ -140,39 +140,25 @@ where
     }
 }
 
-impl<T> Add for DVec<T>
+impl<'a, T> Add<&'a Self> for DVec<T>
 where
-    T: AddAssign + Clone,
+    T: AddAssign<&'a T> + Clone,
 {
     type Output = DVec<T>;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        let mut res = self;
-        res += rhs;
-        res
+    fn add(mut self, rhs: &'a Self) -> Self::Output {
+        self += rhs;
+        self
     }
 }
 
-impl<T> AddAssign for DVec<T>
+impl<'a, T> AddAssign<&'a Self> for DVec<T>
 where
-    T: AddAssign + Clone,
+    T: AddAssign<&'a T> + Clone,
 {
-    fn add_assign(&mut self, rhs: Self) {
-        self[0] += rhs[0].clone();
-        self[1] += rhs[1].clone();
-    }
-}
-
-impl<T> Sum for DVec<T>
-where
-    T: AddAssign + Clone + Default,
-{
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        let mut res = DVec::default();
-        for dvec in iter {
-            res += dvec;
-        }
-        res
+    fn add_assign(&mut self, rhs: &'a Self) {
+        self[0] += &rhs[0];
+        self[1] += &rhs[1];
     }
 }
 
@@ -202,7 +188,7 @@ where
 }
 
 /// DMCFE label
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Label(Vec<u8>);
 
 impl Label {
@@ -227,12 +213,6 @@ impl Label {
     }
 }
 
-impl Default for Label {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl From<&str> for Label {
     fn from(s: &str) -> Self {
         Self(s.as_bytes().to_vec())
@@ -252,6 +232,6 @@ impl Deref for Label {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        self.0.as_slice()
+        &self.0
     }
 }

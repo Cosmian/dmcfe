@@ -47,6 +47,7 @@ fn t_gen(dski: &dsum::PrivateKey, dpk: &[dsum::PublicKey]) -> TMat<dsum::CypherT
 /// Return the DMCFE secret key.
 /// - `dski`: DSum secret key
 /// - `dpk` : DSum public keys from all clients
+/// - `rng` : random number generator
 pub fn setup<R: CryptoRng + RngCore>(
     dski: &dsum::PrivateKey,
     dpk: &[dsum::PublicKey],
@@ -64,7 +65,7 @@ pub fn setup<R: CryptoRng + RngCore>(
 /// - `y`   : decryption function
 pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecryptionKey {
     let v = DVec::from(tools::double_hash_to_curve_in_g2(&Label::from(y)));
-    PartialDecryptionKey(&(&ski.s * &y[id]) * &G2Projective::generator() + &ski.t * &v)
+    PartialDecryptionKey(&(&ski.s * &y[id]) * &G2Projective::generator() + &(&ski.t * &v))
 }
 
 /// Combine the partial decryption keys to return the final decryption key.
@@ -73,7 +74,10 @@ pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecry
 pub fn key_comb(y: &[Scalar], pdk: &[PartialDecryptionKey]) -> DecryptionKey {
     DecryptionKey {
         y: y.to_vec(),
-        d: pdk.iter().map(|&PartialDecryptionKey(di)| di).sum(),
+        d: pdk
+            .iter()
+            .map(|PartialDecryptionKey(di)| di)
+            .fold(DVec::default(), |acc, e| acc + e),
     }
 }
 

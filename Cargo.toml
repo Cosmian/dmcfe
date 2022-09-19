@@ -1,6 +1,6 @@
 [package]
 name = "dmcfe"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = [
   "Théophile Brezot <theophile.brezot@cosmian.com>",
@@ -11,13 +11,13 @@ repository = "https://github.com/Cosmian/DMCFE"
 
 [dependencies]
 cosmian_bls12_381 = {git = "https://github.com/Cosmian/bls12_381.git", branch = "add_gt_hash"}
-sha2 = "0.9.5"
-eyre = "0.6.5"
-rand_core = "0.6.3"
+sha2 = "0.9"
+eyre = "0.6"
+rand_core = "0.6"
 
 [dev-dependencies]
 criterion = "0.3"
-rand = "0.8.5"
+rand = "0.8"
 
 [[bench]]
 name = "ipfe"

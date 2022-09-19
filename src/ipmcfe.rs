@@ -37,7 +37,8 @@ pub struct DecryptionKey {
 }
 
 /// Compute the client encryption keys.
-/// - `m`: number of contributions per client
+/// - `m`   : number of contributions per client
+/// - `rng` : random number generator
 pub fn setup<R: CryptoRng + RngCore>(m: usize, rng: &mut R) -> PrivateKey {
     let (msk, _) = ipfe::setup(m, rng);
     PrivateKey {
@@ -84,7 +85,7 @@ pub fn dkey_gen(msk: &[PrivateKey], y: &[Vec<Scalar>]) -> Result<DecryptionKey> 
     let mut ip_dk = Vec::with_capacity(y.len());
     for (ski, yi) in msk.iter().zip(y.iter()) {
         ip_dk.push(ipfe::key_gen(&ski.msk, yi)?);
-        d += types::DVec::try_from(
+        d += &types::DVec::try_from(
             tools::scal_mat_mul_dim_2(&tools::transpose(&ski.s)?, yi)?.as_slice(),
         )
         .map_err(|_| eyre::eyre!("Cannot convert the given dki into a DVec!"))?;

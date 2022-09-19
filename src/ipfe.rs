@@ -34,7 +34,8 @@ pub struct CypherText {
 /// This algorithm implements the `Setup` function of the IPFE scheme.
 /// It returns `(msk, mpk)`, the master secret an public keys.
 ///
-/// - l: dimension of the vector space
+/// - l     : dimension of the vector space
+/// - `rng` : random number generator
 pub fn setup<R: CryptoRng + RngCore>(l: usize, rng: &mut R) -> (Vec<PrivateKey>, Vec<PublicKey>) {
     let msk = (0..l)
         .map(|_| PrivateKey(tools::random_scalar(rng)))
@@ -48,8 +49,9 @@ pub fn setup<R: CryptoRng + RngCore>(l: usize, rng: &mut R) -> (Vec<PrivateKey>,
 /// This algorithm implements the `Encrypt` function of the IPFE scheme.
 /// It returns the pair `(ct_0, (ct_i))`.
 ///
-/// - `MPK` : master public key
+/// - `mpk` : master public key
 /// - `x`   : message to be encrypted
+/// - `rng` : random number generator
 pub fn encrypt<R: CryptoRng + RngCore>(
     mpk: &[PublicKey],
     x: &[Scalar],
