@@ -3,20 +3,20 @@ use cosmian_bls12_381::{
     G1Affine, G1Projective, G2Projective, Scalar,
 };
 use eyre::Result;
+use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256, Sha512};
 use std::cmp::Ordering;
 
 const DST: &[u8] = b"simple_DST";
 
 /// Draw a random scalar from Fp.
+///
+/// - `rng` : random number generator
 #[inline]
-pub(crate) fn random_scalar() -> Scalar {
-    Scalar::from_raw([
-        rand::random(),
-        rand::random(),
-        rand::random(),
-        rand::random(),
-    ])
+pub(crate) fn random_scalar<R: CryptoRng + RngCore>(rng: &mut R) -> Scalar {
+    let mut bytes = [0; 64];
+    rng.fill_bytes(&mut bytes);
+    Scalar::from_bytes_wide(&bytes)
 }
 
 /// Hide a given scalar in G1 based on the CDH assumption.
@@ -66,24 +66,23 @@ pub(crate) fn hash_to_scalar(
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmax)));
     hasher.update(G1Affine::to_compressed(&G1Affine::from(tmul)));
     hasher.update(label);
-    // get the hash as a 64-bytes string
     let mut m = [0; 64];
-    hasher
-        .finalize()
-        .as_slice()
-        .iter()
-        .enumerate()
-        .for_each(|(i, val)| m[i] = *val);
-    // convert it into a Scalar
+    // this cannot panic since we know the size of the hash is 64 bytes
+    m.clone_from_slice(hasher.finalize().as_slice());
     Scalar::from_bytes_wide(&m)
 }
 
 /// generate a random `(m,n)` matrix of `Fp` elements.
-/// - `m`:  matrix size 1;
-/// - `n`:  matrix size 2.
-pub(crate) fn random_mat_gen(m: usize, n: usize) -> Vec<Vec<Scalar>> {
+/// - `m`   :  matrix size 1;
+/// - `n`   :  matrix size 2.
+/// - `rng` : random number generator
+pub(crate) fn random_mat_gen<R: RngCore + CryptoRng>(
+    m: usize,
+    n: usize,
+    rng: &mut R,
+) -> Vec<Vec<Scalar>> {
     (0..m)
-        .map(|_| (0..n).map(|_| random_scalar()).collect())
+        .map(|_| (0..n).map(|_| random_scalar(rng)).collect())
         .collect()
 }
 
@@ -118,7 +117,7 @@ pub(crate) fn mat_mul(x: &[Vec<Scalar>], y: &[G1Projective]) -> Result<Vec<G1Pro
         x ({}, {}) vs y ({}, 1)",
         x.len(),
         x.first()
-            .ok_or_else(|| eyre::eyre!("Error while accessing the first element of x!"))?
+            .ok_or_else(|| eyre::eyre!("Empty matrices are not allowed"))?
             .len(),
         y.len(),
     );
@@ -161,8 +160,8 @@ pub(crate) fn scal_mat_mul_dim_2(x: &[Vec<Scalar>], y: &[Scalar]) -> Result<Vec<
 /// - `pkj` : some other client public key
 pub(crate) fn h(label: &[u8], ski: &Scalar, pkj: &G1Projective) -> Scalar {
     let pki = smul_in_g1(ski);
-    let pki_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pki)));
-    let pkj_hash = Sha256::digest(&G1Affine::to_compressed(&G1Affine::from(pkj)));
+    let pki_hash = Sha256::digest(&G1Affine::to_uncompressed(&G1Affine::from(pki)));
+    let pkj_hash = Sha256::digest(&G1Affine::to_uncompressed(&G1Affine::from(pkj)));
 
     match pkj_hash.cmp(&pki_hash) {
         Ordering::Less => Scalar::neg(&hash_to_scalar(pkj, &pki, &(pkj * ski), label)),

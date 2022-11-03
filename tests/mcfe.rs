@@ -11,6 +11,7 @@
 use cosmian_bls12_381::{G1Projective, Scalar};
 use dmcfe::{ipmcfe, types::Label};
 use eyre::Result;
+use rand::rngs::ThreadRng;
 use rand::Rng;
 use std::sync::mpsc;
 use std::thread;
@@ -82,7 +83,8 @@ fn simulation(x: &[Vec<Scalar>], y: &[Vec<Scalar>], label: &Label) -> Result<G1P
     let m = X.first().unwrap().len();
 
     // generate encryption keys
-    let msk: Vec<ipmcfe::PrivateKey> = (0..n).map(|_| ipmcfe::setup(m)).collect();
+    let mut rng = ThreadRng::default();
+    let msk: Vec<ipmcfe::PrivateKey> = (0..n).map(|_| ipmcfe::setup(m, &mut rng)).collect();
 
     // Create the communication channels
     let (tx, rx): (mpsc::Sender<Contribution>, mpsc::Receiver<Contribution>) = mpsc::channel();
@@ -126,7 +128,7 @@ fn test_mcfe() -> Result<()> {
     // decryption function
     let y = vec![vec![Scalar::from_raw([rand::random(); 4]); m]; n];
     // label
-    let label = Label::new()?;
+    let label = Label::new();
 
     // compute the solution `G * <x,y>`
     // stay in G1 to avoid computing the discrete log

@@ -6,7 +6,7 @@ use bus::{Bus, BusTx};
 use cosmian_bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use dmcfe::{dsum, ipdmcfe, types::Label};
 use eyre::Result;
-use rand::Rng;
+use rand::{rngs::ThreadRng, Rng};
 use std::thread;
 
 /// Number of decryption keys asked by the user
@@ -134,8 +134,10 @@ fn get_decryption_key(tx: &SimuTx, key_id: u8) -> Result<ipdmcfe::DecryptionKey>
 /// - `id`: client network id
 /// - `tx`: bus transmission channels
 fn client_setup(id: usize, tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
+    let mut rng = ThreadRng::default();
+
     println!("CLIENT {}: generating DSum keys", id);
-    let dsum::KeyPair(dski, dpki) = dsum::client_setup();
+    let dsum::KeyPair(dski, dpki) = dsum::client_setup(&mut rng);
     println!("CLIENT {}: broadcasting DSum public key", id);
     bus::broadcast(&tx.dpk, dpki)?;
     println!(
@@ -147,7 +149,7 @@ fn client_setup(id: usize, tx: &SimuTx) -> Result<ipdmcfe::PrivateKey> {
         "CLIENT {}: received all DSum public keys, generating the DMCFE secret key",
         id
     );
-    Ok(ipdmcfe::setup(&dski, &dpk))
+    Ok(ipdmcfe::setup(&dski, &dpk, &mut rng))
 }
 
 /// Simulate a client:
@@ -168,7 +170,7 @@ fn client_simulation(id: usize, tx: &SimuTx) -> Result<Scalar> {
         let (ski, tx) = (ski.clone(), tx.clone());
         thread::spawn(move || -> Result<Scalar> {
             println!("CLIENT {}: encrypting data and sending to user", id);
-            let l = Label::new()?;
+            let l = Label::new();
             let xi: Scalar = random_scalar();
             let cij = ipdmcfe::encrypt(&xi, &ski, &l);
             bus::unicast(&tx.ci, tx.n - 1, ((cij, l), id))?;

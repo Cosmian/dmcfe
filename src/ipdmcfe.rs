@@ -3,6 +3,7 @@ use crate::{
     types::{DVec, Label, TMat},
 };
 use cosmian_bls12_381::{pairing, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
+use rand_core::{CryptoRng, RngCore};
 
 /// DMCFE cyphertext type
 #[derive(Clone, Copy)]
@@ -37,7 +38,7 @@ fn t_gen(dski: &dsum::PrivateKey, dpk: &[dsum::PublicKey]) -> TMat<dsum::CypherT
     let mut res = [Default::default(); 4];
     for (i, res) in res.iter_mut().enumerate() {
         let mut l = Label::from("Setup");
-        l.aggregate(&(i as u8).to_be_bytes());
+        l.aggregate((i as u8).to_be_bytes());
         *res = dsum::encode(&Scalar::zero(), dski, dpk, &l);
     }
     TMat::new(res[0], res[1], res[2], res[3])
@@ -46,9 +47,14 @@ fn t_gen(dski: &dsum::PrivateKey, dpk: &[dsum::PublicKey]) -> TMat<dsum::CypherT
 /// Return the DMCFE secret key.
 /// - `dski`: DSum secret key
 /// - `dpk` : DSum public keys from all clients
-pub fn setup(dski: &dsum::PrivateKey, dpk: &[dsum::PublicKey]) -> PrivateKey {
+/// - `rng` : random number generator
+pub fn setup<R: CryptoRng + RngCore>(
+    dski: &dsum::PrivateKey,
+    dpk: &[dsum::PublicKey],
+    rng: &mut R,
+) -> PrivateKey {
     PrivateKey {
-        s: DVec([tools::random_scalar(), tools::random_scalar()]),
+        s: DVec::new(tools::random_scalar(rng), tools::random_scalar(rng)),
         t: t_gen(dski, dpk),
     }
 }
@@ -58,8 +64,8 @@ pub fn setup(dski: &dsum::PrivateKey, dpk: &[dsum::PublicKey]) -> PrivateKey {
 /// - `ski` : private key
 /// - `y`   : decryption function
 pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecryptionKey {
-    let v = DVec::new(tools::double_hash_to_curve_in_g2(Label::from(y).as_ref()));
-    PartialDecryptionKey(&(&ski.s * &y[id]) * &G2Projective::generator() + &ski.t * &v)
+    let v = DVec::from(tools::double_hash_to_curve_in_g2(&Label::from(y)));
+    PartialDecryptionKey(&(&ski.s * &y[id]) * &G2Projective::generator() + &(&ski.t * &v))
 }
 
 /// Combine the partial decryption keys to return the final decryption key.
@@ -68,7 +74,10 @@ pub fn dkey_gen_share(id: usize, ski: &PrivateKey, y: &[Scalar]) -> PartialDecry
 pub fn key_comb(y: &[Scalar], pdk: &[PartialDecryptionKey]) -> DecryptionKey {
     DecryptionKey {
         y: y.to_vec(),
-        d: pdk.iter().map(|&PartialDecryptionKey(di)| di).sum(),
+        d: pdk
+            .iter()
+            .map(|PartialDecryptionKey(di)| di)
+            .fold(DVec::default(), |acc, e| acc + e),
     }
 }
 
@@ -77,7 +86,7 @@ pub fn key_comb(y: &[Scalar], pdk: &[PartialDecryptionKey]) -> DecryptionKey {
 /// - `ski` : encryption key
 /// - `l`   : label
 pub fn encrypt(xi: &Scalar, ski: &PrivateKey, l: &Label) -> CypherText {
-    let u = DVec::new(tools::double_hash_to_curve_in_g1(l.as_ref()));
+    let u = DVec::from(tools::double_hash_to_curve_in_g1(l));
     CypherText(u.inner_product(&ski.s) + tools::smul_in_g1(xi))
 }
 
@@ -86,7 +95,7 @@ pub fn encrypt(xi: &Scalar, ski: &PrivateKey, l: &Label) -> CypherText {
 /// - `dk` : decryption key
 /// - `l`  : label
 pub fn decrypt(c: &[CypherText], dk: &DecryptionKey, l: &Label) -> Gt {
-    let u = DVec::new(tools::double_hash_to_curve_in_g1(l.as_ref()));
+    let u = DVec::from(tools::double_hash_to_curve_in_g1(l));
 
     c.iter()
         .zip(dk.y.iter())

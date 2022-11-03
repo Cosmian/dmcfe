@@ -1,5 +1,6 @@
 use crate::{tools, types::Label};
 use cosmian_bls12_381::{G1Projective, G2Projective, Scalar};
+use rand_core::{CryptoRng, RngCore};
 use std::ops::{Deref, Mul};
 
 #[derive(Clone, Copy)]
@@ -53,8 +54,8 @@ impl Deref for PublicKey {
 pub struct KeyPair(pub PrivateKey, pub PublicKey);
 
 /// Creates the private and public keys for a DSum client.
-pub fn client_setup() -> KeyPair {
-    let t = tools::random_scalar();
+pub fn client_setup<R: RngCore + CryptoRng>(rng: &mut R) -> KeyPair {
+    let t = tools::random_scalar(rng);
     KeyPair(PrivateKey(t), PublicKey(tools::smul_in_g1(&t)))
 }
 
@@ -67,7 +68,7 @@ pub fn encode(x: &Scalar, ski: &PrivateKey, pk_list: &[PublicKey], label: &Label
     CypherText(
         pk_list
             .iter()
-            .fold(*x, |acc, pkj| acc + tools::h(label.as_ref(), ski, pkj)),
+            .fold(*x, |acc, pkj| acc + tools::h(label, ski, pkj)),
     )
 }
 

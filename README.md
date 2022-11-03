@@ -103,6 +103,34 @@ This KP-ABE implementation is based on the crate [cosmian_bls12_381](https://cra
 
 BLS12-381 is chosen so that `z` has small Hamming weight (to improve pairing performance) and also so that `GF(q)` has a large <code>2<sup>32</sup></code> primitive root of unity for performing radix-2 fast Fourier transforms for efficient multipoint evaluation and interpolation. It is also chosen so that it exists in a particularly efficient and rigid subfamily of BLS12-381 curves.
 
+## Benches
+
+You can run benchmarks using `cargo bench`, for example: `cargo bench --bench ipfe`.
+
+### IPFE
+```
+Encrypt 100             time:   [123.43 ms 123.74 ms 124.06 ms]
+Decrypt 100             time:   [62.049 ms 62.296 ms 62.543 ms]
+```
+
+### IPMCFE
+```
+Encrypt one client, one contrib
+                        time:   [2.9557 ms 2.9689 ms 2.9825 ms]
+Decrypt 10 clients, one contrib
+                        time:   [15.592 ms 15.651 ms 15.712 ms]
+
+```
+
+### IPDMCFE
+
+```
+Encrypt one client
+                        time:   [2.1675 ms 2.1781 ms 2.1889 ms]
+Decrypt 10 clients
+                        time:   [54.662 ms 55.389 ms 56.361 ms]
+```
+
 ## Bibliography
 
 [1] Michel Abdalla, Florian Bourse, Angelo De Caro, and David Pointcheval, Simple Functional Encryption Schemes for Inner Products, [https://eprint.iacr.org/2015/017.pdf](https://eprint.iacr.org/2015/017.pdf)

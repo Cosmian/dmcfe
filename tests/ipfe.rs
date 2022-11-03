@@ -6,10 +6,12 @@
 use cosmian_bls12_381::{G1Projective, Scalar};
 use dmcfe::ipfe;
 use eyre::Result;
-use rand::Rng;
+use rand::{rngs::ThreadRng, Rng};
 
 #[test]
 fn test_ipfe() -> Result<()> {
+    let mut rng = ThreadRng::default();
+
     // size of the problem
     let l: usize = rand::thread_rng().gen_range(10..100);
     // generate random input vectors
@@ -21,12 +23,12 @@ fn test_ipfe() -> Result<()> {
         .collect();
 
     // Generate IPFE keys
-    let (msk, mpk) = ipfe::setup(l);
+    let (msk, mpk) = ipfe::setup(l, &mut rng);
     let sky = ipfe::key_gen(&msk, &y)?;
 
     // compute the text using the IPFE algorithm
     // stay in G1 to avoid computing the discrete logarithm
-    let ct = ipfe::encrypt(&mpk, &x)?;
+    let ct = ipfe::encrypt(&mpk, &x, &mut rng)?;
     let P = ipfe::decrypt(&ct, &y, &sky);
 
     // compute `g * <x, y>`

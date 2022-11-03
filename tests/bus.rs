@@ -170,10 +170,10 @@ impl<T: Clone> BusQueues<T> {
                     if self.private[unicast.id].len() < MAX_SIZE {
                         self.private[unicast.id].push(unicast.data);
                     } else {
-                        eyre::eyre!("Cannot send data to client {}, queue is full!", unicast.id);
+                        // drop packet
                     }
                 } else {
-                    eyre::eyre!("Cannot send data to client {}", unicast.id);
+                    // drop packet
                 }
             }
         }
